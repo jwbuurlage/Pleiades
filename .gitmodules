@@ -1,3 +1,9 @@
 [submodule "ext/tpt"]
 	path = ext/tpt
 	url = https://github.com/jwbuurlage/TPT.git
+[submodule "ext/cgal"]
+	path = ext/cgal
+	url = https://github.com/CGAL/cgal.git
+[submodule "ext/bulk"]
+	path = ext/bulk
+	url = https://github.com/jwbuurlage/Bulk.git
