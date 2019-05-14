@@ -18,12 +18,15 @@ set(CGAL_HEADER_ONLY on)
 find_package(CGAL)
 
 target_include_directories(pleiades SYSTEM PUBLIC ${CGAL_INCLUDE_DIRS})
+target_include_directories(pleiades PUBLIC "include")
 target_compile_definitions(pleiades PUBLIC CGAL_HEADER_ONLY)
 target_compile_definitions(pleiades PUBLIC CGAL_HEADER_ONLY)
 
 target_link_libraries(pleiades PUBLIC
     ${CGAL_LIBS}
     tpt
+    gmp
+    mpfr
 )
 
 add_executable("comstruct" "src/communication_structure.cpp")

@@ -1,0 +1,20 @@
+specifies = "geometry"
+type = "circular-cone-beam"
+dimension = 3
+id = "cone-beam-narrow"
+
+[parameters]
+source-position = [-5.0, 0.5, 0.5]
+detector-position = [4.0, 0.5, 0.5]
+detector-size = [2.0, 2.0]
+projection-count = 512
+detector-shape = [768, 768]
+detector-tilt = [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+# angles: [0, 0.5, 1.0, ...]
+# ...
+
+# optional
+[volume]
+min-point = [0.0, 0.0, 0.0]
+max-point = [1.0, 1.0, 1.0]
+voxels = [512, 512, 512]

@@ -1,0 +1,19 @@
+specifies = "geometry"
+type = "helical-cone-beam"
+dimension = 3
+id = "helical-cone-beam"
+
+[parameters]
+source-position = [-3.0, 0.5, 0.5]
+detector-position = [4.0, 0.5, 0.5]
+detector-size = [2.0, 2.0]
+projection-count = 512
+detector-shape = [512, 512]
+rotations = 2.0
+detector-tilt = [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+
+# optional
+[volume]
+min-point = [0.0, 0.0, 0.0]
+max-point = [1.0, 1.0, 1.0]
+voxels = [512, 512, 512]

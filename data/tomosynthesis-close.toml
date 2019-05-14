@@ -1,0 +1,21 @@
+specifies = "geometry"
+type = "tomosynthesis"
+dimension = 3
+id = "tomosynthesis"
+
+[parameters]
+source-position = [0.5, 0.5, 4.0]
+detector-position = [0.5, 0.5, -0.5]
+detector-size = [1.5, 1.5]
+projection-count = 512
+detector-shape = [768, 768]
+source-arc = 0.3
+# detector-tilt = [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+# angles: [0, 0.5, 1.0, ...]
+# ...
+
+# optional
+[volume]
+min-point = [0.0, 0.0, 0.0]
+max-point = [1.0, 1.0, 1.0]
+voxels = [512, 512, 512]

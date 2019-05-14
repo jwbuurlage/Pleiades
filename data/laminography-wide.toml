@@ -1,0 +1,21 @@
+specifies = "geometry"
+type = "laminography"
+dimension = 3
+
+[parameters]
+source-position = [0.5, 0.5, 3.0]
+detector-position = [0.5, 0.5, -2.0]
+detector-size = [2.5, 2.5]
+projection-count = 512
+detector-shape = [512, 512]
+source-radius = 1.0
+detector-radius = 1.0
+# detector-tilt = [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+# angles: [0, 0.5, 1.0, ...]
+# ...
+
+# optional
+[volume]
+min-point = [0.0, 0.0, 0.0]
+max-point = [1.0, 1.0, 1.0]
+voxels = [512, 512, 512]
