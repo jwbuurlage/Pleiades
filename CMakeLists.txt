@@ -31,3 +31,6 @@ target_link_libraries(pleiades PUBLIC
 
 add_executable("comstruct" "src/communication_structure.cpp")
 target_link_libraries("comstruct" pleiades)
+
+add_executable("rgstats" "src/restricted_geometry_stats.cpp")
+target_link_libraries("rgstats" pleiades)
