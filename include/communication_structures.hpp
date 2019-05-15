@@ -1,3 +1,8 @@
+/*
+ * TODO Global to local indices
+ * TODO Remote indices per scanline for each target
+ */
+
 #include <random>
 #include <vector>
 
@@ -5,31 +10,78 @@
 
 namespace pleiades {
 
+// a scanlines is a consecutive subarray from position `begin` up to `begin + count`
 struct scanline {
     int begin;
     int count;
 };
 
+// a face has a list of contributing processors, and a list of scanlines
 struct face {
     std::vector<int> contributors;
     std::vector<scanline> scanlines;
 };
 
+// for the gather step, one of the contributors of a face is considered its
+// owner. the scanlines in `lines` are to be communicated to the owner's
+// 'reduction buffer' at the index indicated by the first component of the pair
 struct gather_task {
     int owner;
-    std::vector<scanline> local_scanlines;
+    std::vector<std::pair<int, scanline>> lines;
 };
 
+// for the scatter step, the owner communicates the reduction result back to the
+// contributors. Each line has an associated tag, which is a list of remote
+// indices of the contributors in their main data buffer
 struct scatter_task {
     std::vector<int> contributors;
-    std::vector<std::vector<int>> remote;
-    std::vector<scanline> local_scanlines;
+    std::vector<std::pair<std::vector<int>, scanline>> lines;
 };
 
 template <typename T>
+void gather(bulk::coarray<T> buffer, std::vector<gather_task> tasks, const T* data)
+{
+    for (auto task : tasks) {
+        for (auto [remote, line] : task.lines) {
+            auto [begin, count] = line;
+            buffer(task.owner)[{remote, remote + count}] = {&data[begin], count};
+        }
+    }
+    buffer.world.sync();
+}
+
+template <typename T>
+void scatter(bulk::coarray<T> buffer, std::vector<scatter_task> tasks, const T* data)
+{
+    for (auto task : tasks) {
+        for (auto [remotes, line] : task.lines) {
+            for (int i = 0; i < task.contributors.size(); ++i) {
+                auto remote = remotes[i];
+                buffer(task.contributors[i])[{remote, remote + count}] = {&data[begin], count};
+            }
+        }
+        buffer.world.sync();
+    }
+}
+
+template <typename T>
 std::pair<std::vector<gather_task>, std::vector<scatter_task>>
-tasks(bulk::world& world, const tpt::geometry::base<3_D, T>& g,
-      const tpt::grcb::node<T>& root, tpt::grcb::cube<T> v) {
+tasks(bulk::world& world,
+      const tpt::geometry::base<3_D, T>& g,
+      const tpt::grcb::node<T>& root,
+      tpt::grcb::cube<T> v)
+{
+    // maybe best if projections are treated round robin, and independently a
+    // collection of gather--scatter tasks are made. Then, we collect these task
+
+    // main question for now: signature of index conversion methods
+
+    // given a collection of scanlines, with global indices in the projection
+    // stack, convert to 1) buffer indices and 2) local indices
+
+    // TODO who is responsible for deciding owners of faces
+    // TODO round robin stuff
+
     auto rd = std::random_device();
     auto engine = std::mt19937(rd());
 
@@ -61,49 +113,11 @@ tasks(bulk::world& world, const tpt::geometry::base<3_D, T>& g,
 
     for (int t = 0; t < p; ++t) {
         for (auto task : scatters) {
-          sq(t).send(task)
+            sq(t).send(task)
         }
     }
 
     world.sync();
-
-}
-
-// maybe best if projections are treated round robin, and independently a
-// collection of gather--scatter tasks are made. Then, we collect these task
-
-// main question for now: signature of index conversion methods
-
-// given a collection of scanlines, with global indices in the projection
-// stack, convert to 1) buffer indices and 2) local indices
-
-// TODO who is responsible for deciding owners of faces
-// TODO round robin stuff
-} // namespace pleiades
-
-template <typename T>
-void gather(bulk::coarray<T> buffer, std::vector<gather_task> tasks,
-            const T* data) {
-    for (auto task : tasks) {
-        auto [t, i] = task.owner;
-        for (auto [begin, count] : local_scanlines) {
-            buffer(t)[{i, i + count}] = {&data[begin], count};
-        }
-    }
-    buffer.world.sync();
-}
-
-template <typename T>
-void scatter(bulk::coarray<T> buffer, std::vector<scatter_task> tasks,
-             const T* data) {
-    for (auto task : tasks) {
-        for (auto [t, i] : task.contributors) {
-            for (auto [begin, count] : local_scanlines) {
-                buffer(t)[{i, i + count}] = {&data[begin], count};
-            }
-        }
-    }
-    buffer.world.sync();
 }
 
 } // namespace pleiades
