@@ -10,7 +10,8 @@
 
 namespace pleiades {
 
-std::size_t global_to_local(int rank, std::size_t global, geometry g) {
+// convert a global index to a local one
+std::size_t global_to_local(geometry g, std::size_t global, int rank) {
     return 0;
 }
 
@@ -38,6 +39,7 @@ struct gather_task {
 // for the scatter step, the owner communicates the reduction result back to the
 // contributors. Each line has an associated tag, which is a list of remote
 // indices of the contributors in their main data buffer
+// TODO here the scanline indices are in the gather result buffer
 struct scatter_task {
     std::vector<int> contributors;
     std::vector<std::pair<std::vector<std::size_t>, scanline>> lines;
@@ -87,8 +89,8 @@ tasks(bulk::world& world, const tpt::geometry::base<3_D, T>& g,
     // 1. Assign the projections round robin, and treat them independently. For
     // each projection, gather and scatter tasks are constructed with the
     // correct indices. This happens in two phases.
-    //   A) Owners are assigned to the faces, and the buffers are measured for size
-    //   B) The tasks are generated, with correct indices
+    //   A) Owners are assigned to the faces, and the buffers are measured for
+    //   size B) The tasks are generated, with correct indices
     // 2. For all the projections that are being processed by the local rank,
     // gather the task together in lists (`scatters`, `gathers`). These tasks
     // are grouped by responsible rank.
@@ -104,43 +106,108 @@ tasks(bulk::world& world, const tpt::geometry::base<3_D, T>& g,
     auto rd = std::random_device();
     auto engine = std::mt19937(rd());
 
-    // PHASE A: Assign owners, and measure buffers
-    // process projections in a round-robin fashion.
-    for (int i = s; i < g.projection_count(); i += p) {
-        auto pi = g.get_projection(i);
+    // cache faces of local projections, and the assigned owners
+    auto faces = std::vector<std::vector<face>>();
+    auto owners = std::vector<std::vector<int>>();
+
+    // the buffer size that we require for each processor
+    auto B = std::vector<std::size_t>(p, 0);
+
+    // PHASE A: 'Dry run': assign owners, and measure buffers
+    // process projections in a round-robin fashion
+    // Here, i is the local index, and J is the global index
+    for (auto i = 0, auto J = s; J < g.projection_count(); J += p, i += 1) {
+        auto pi = g.get_projection(J);
 
         // get faces for the i-th projection
         auto overlay = get_overlay_for_projection(pi, root, v);
-        auto faces = get_faces(pi, overlay);
+        faces.push_back(get_faces(pi, overlay));
 
-        // I think we need to:
-        // - remember the owner
+        // make zero-initialized list of owners
+        owners.push_back(std::vector<int>(0, faces[i].size()));
+
+        // We need to:
+        // - assign and cache the owner
         // - count the total buffer size
-        // - be able to traverse the faces list again, without rerunning
-        //   the previous algorithm
+        auto f = 0;
         for (auto& face : faces) {
-            // assign a random owner to the face off the list of processors
-            auto owner = face.contributors[engine() % face.contributors.size()];
+            // assign a random owner to the face from the list of contributors
+            owners[i][f] =
+                face.contributors[engine() % face.contributors.size()];
 
-            // prepare gather_tasks for contributors, scatter_tasks for owner
-            for (auto t : face.contributors) {
-              gathers[t].push_back(gather_task{...});
-                scatters[t].push_back(scatter_task{...});
-            }
+            // measure the number of pixels
+            auto pixels = std::accumulate(
+                face.scanlines.begin(), face.scanlines.end(),
+                [](auto total, auto [begin, count]) { return total + count; });
+
+            B[t] += face.contributors.size() * pixels;
+
+            f += 1;
+        }
+    }
+
+    // now we have B[t], the local buffer offsets can be computed this is a full
+    // p^2-relation, after this communication step we can compute partial sums.
+    auto C = bulk::coarray<std::size_t>(world, p * p);
+    for (auto u = 0; u < p; ++u) {
+        for (auto t = 0; t < p; ++t) {
+            C(u)[t * p + s] = B[t];
+        }
+    }
+    world.sync();
+
+    // D[t] is the beginning of our buffer portion in processor t
+    auto D = std::vector<int>(p, 0);
+    for (int t = 0; t < p; ++t) {
+        for (int u = 0; u < s; ++u) {
+            D[t] += C[t * p + u];
         }
     }
 
     // PHASE B: Construct tasks
+    // prepare gather_tasks for contributors, scatter_tasks for owner
+    for (auto i = 0, auto J = s; J < g.projection_count(); J += p, i += 1) {
+        auto f = 0;
+        for (auto& face : faces) {
+            // TODO juggle indices
+            auto t = owners[i][f];
+            std::vector<std::size_t> scatter_offsets(face.contributors.size());
+            for (auto [begin, count] : face.scanlines) {
+                for (auto u : face.contributors) {
+                    gathers[u].push_back({t, {D[t], {...}}});
+                }
+            }
 
-    // auto sq = bulk::queue<scatter_task>(world);
+            scatters[t].push_back(scatter_task{...});
+            f += 1;
+        }
+    }
 
-    // for (int t = 0; t < p; ++t) {
-    //     for (auto task : scatters) {
-    //         sq(t).send(task)
-    //     }
-    // }
+    // PHASE C: Distribute all tasks
+    auto gq = bulk::queue<gather_task>(world);
+    auto sq = bulk::queue<scatter_task>(world);
 
-    // world.sync();
+    for (int t = 0; t < p; ++t) {
+        for (auto task : scatters[t]) {
+            sq(t).send(task)
+        }
+        for (auto task : gathers[t]) {
+            gq(t).send(task)
+        }
+    }
+
+    // (this would be nice syntax, can we do something like this in Bulk)
+    // sq(0..t..p).send*(scatters[t]);
+    // gq(0..t..p).send*(gathers[t]);
+
+    world.sync();
+
+    gathers.resize(gq.size());
+    scatters.resize(sq.size());
+    std::copy(gq.begin(), gq.end(), gathers.begin());
+    std::copy(sq.begin(), sq.end(), scatters.begin());
+
+    return {gathers, scatters};
 }
 
 } // namespace pleiades
