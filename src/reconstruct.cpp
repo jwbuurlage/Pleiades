@@ -1,3 +1,6 @@
+#include <bulk/backends/mpi/mpi.hpp>
+#include <bulk/bulk.hpp>
+
 #include "fmt/format.h"
 
 #include "tpt/tpt.hpp"
@@ -5,11 +8,11 @@
 
 #include "reconstruct.hpp"
 
-int main(int argc, char* argv[]) {
-    using T = float;
+using T = float;
 
+int main(int argc, char* argv[]) {
     auto env = bulk::mpi::environment();
-    env.spawn(env.available_processors(), [&](auto& world) {
+    env.spawn(env.available_processors(), [](auto& world) {
         auto app = CLI::App{"Run a reconstruction job"};
 
         auto p = 2;
@@ -34,6 +37,6 @@ int main(int argc, char* argv[]) {
         auto parts =
             pleiades::partitioning_to_corners<T>(*root, tpt::grcb::corners(v));
 
-        pleiades::reconstruct(world, ...);
+        pleiades::reconstruct(world, parts, g, v);
     });
 }

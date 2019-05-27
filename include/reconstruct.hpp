@@ -1,5 +1,7 @@
 #include <bulk/bulk.hpp>
 
+#include "communication_structures.hpp"
+
 namespace pleiades {
 
 void reconstruct(bulk::world& world, partitioning root, geometry g, volume v) {

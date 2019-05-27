@@ -12,6 +12,8 @@
 #include <boost/geometry.hpp>
 namespace bg = boost::geometry;
 
+#include "data_structures.hpp"
+
 namespace pleiades {
 
 using tag = std::vector<int>;
@@ -154,25 +156,12 @@ void plot_arrangement(tpt::geometry::projection<3_D, T> pi, std::string name,
     }
 }
 
-typedef Kernel::Point_2 Point2;
-typedef Kernel::Segment_2 Seg2;
-typedef Kernel::Line_2 Line2;
-
-// TEMPORARY: include communication_structures later
-struct scanline {
-    int begin;
-    int count;
-};
-
-struct face {
-    std::vector<int> contributors;
-    std::vector<scanline> scanlines;
-};
-// ---
-
 template <typename T>
 std::vector<pleiades::face>
 compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay) {
+    using Point2 = Kernel::Point_2;
+    using Seg2 = Kernel::Segment_2;
+    using Line2 = Kernel::Line_2;
 
     // ASSUMPTIONS:
     //   detector coordinate space:
