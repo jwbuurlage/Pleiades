@@ -303,7 +303,8 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay) {
 
                 std::cout << u1r << "," << count << "; ";
 
-                result_f.scanlines.push_back({begin, count});
+                result_f.scanlines.push_back(
+                    {(std::size_t)begin, (std::size_t)count});
             }
             std::cout << std::endl;
         }

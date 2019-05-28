@@ -4,9 +4,11 @@
 
 namespace pleiades {
 
-void reconstruct(bulk::world& world, partitioning root, geometry g, volume v) {
-    // prepare tasks
-    auto [gathers, scatters] = tasks(world, g, root, v);
+template <typename T>
+void reconstruct(bulk::world& world, const tpt::grcb::node<T>& root,
+                 tpt::geometry::base<3_D, T>& g, tpt::volume<3_D, T> v) {
+  // prepare tasks
+    auto [gathers, scatters] = tasks(world, g, root, tpt::grcb::corners(v));
 }
 
 } // namespace pleiades

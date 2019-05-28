@@ -25,6 +25,23 @@ struct geometry_info {
     std::vector<std::vector<std::size_t>> offsets;
 };
 
+// Convert a global index to a local one
+// t: target rank
+std::size_t localize(geometry_info g, int t, int projection_index,
+                     std::size_t pixel) {
+    // global pixel
+    auto i = pixel / std::get<0>(g.shape);
+    auto j = pixel % std::get<0>(g.shape);
+
+    // local pixel
+    auto a = i - std::get<0>(g.corner[t][projection_index]);
+    auto b = j - std::get<1>(g.corner[t][projection_index]);
+
+    // local coordinate
+    return g.offsets[t][projection_index] + a * std::get<1>(g.local_shape[t]) +
+           b;
+}
+
 // scanline is a consecutive subarray from position `begin` up to `begin +
 // count`
 struct scanline {
