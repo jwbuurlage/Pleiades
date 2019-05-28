@@ -45,7 +45,8 @@ int main(int argc, char* argv[]) {
     }
 
     auto pi = g.get_projection(0);
-    auto overlay = pleiades::get_overlay_for_projection(pi, *root, corners);
+    auto shadows = pleiades::get_shadows_for_projection(pi, *root, corners);
+    auto overlay = pleiades::get_overlay_for_projection<T>(shadows);
     pleiades::plot_arrangement(pi, name, overlay);
 
     return 0;

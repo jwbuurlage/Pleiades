@@ -4,6 +4,14 @@
 
 namespace pleiades {
 
+struct projection_bboxes {
+    // corner_tl[t]: the upper left corner of projection on processor t
+    // shape[t]: the shape of the projections on processor t
+    // row, column
+    std::vector<std::pair<int, int>> corner;
+    std::vector<std::pair<int, int>> shape;
+};
+
 // I assume pixel coordinates are in 'matrix access form'
 struct geometry_info {
     // the number of projections in the geometry
@@ -17,7 +25,7 @@ struct geometry_info {
     // row, column
     std::vector<std::vector<std::pair<int, int>>> corner;
 
-    // columns[t]: the number of columns in the projections on processor t
+    // local_shape[t]: the shape of the projections on processor t
     std::vector<std::pair<int, int>> local_shape;
 
     // offsets[t][i]: the offset of the i-th projection in the projection buffer

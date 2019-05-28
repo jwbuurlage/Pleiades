@@ -70,11 +70,22 @@ arrangement merge(const arrangement& lhs, const arrangement& rhs) {
 }
 
 template <typename T>
-auto get_arrangement(tpt::geometry::projection<3_D, T> pi,
-                     tpt::grcb::cube<T> corners, int processor_id) {
-    // convex hull
-    auto [points, hull] = tpt::grcb::shadow(pi, corners);
+std::vector<bg::model::polygon<tpt::math::vec2<T>>>
+get_shadows_for_projection(tpt::geometry::projection<3_D, T> pi,
+                                       const tpt::grcb::node<T>& root,
+                                       tpt::grcb::cube<T> v) {
+    auto parts = pleiades::partitioning_to_corners(root, v);
+    auto shadows = std::vector<bg::model::polygon<tpt::math::vec2<T>>>(parts.size());
+    std::transform(parts.begin(), parts.end(), shadows.begin(),
+                   [&](auto corners) {
+                       return tpt::grcb::shadow(pi, corners).second;
+                   });
+    return shadows;
+}
 
+template <typename T>
+arrangement get_arrangement(const bg::model::polygon<tpt::math::vec2<T>>& hull,
+                      int processor_id) {
     // convert hull to arrangement
     arrangement shadow;
     boost::geometry::for_each_segment(hull.outer(), [&](auto s) {
@@ -95,16 +106,13 @@ auto get_arrangement(tpt::geometry::projection<3_D, T> pi,
 }
 
 template <typename T>
-arrangement get_overlay_for_projection(tpt::geometry::projection<3_D, T> pi,
-                                       const tpt::grcb::node<T>& root,
-                                       tpt::grcb::cube<T> v) {
-    auto parts = pleiades::partitioning_to_corners(root, v);
-    auto arrangements = std::vector<pleiades::arrangement>(parts.size());
+arrangement get_overlay_for_projection(const std::vector<bg::model::polygon<tpt::math::vec2<T>>>& shadows) {
+    auto arrangements = std::vector<pleiades::arrangement>(shadows.size());
 
     int s = 0;
-    std::transform(parts.begin(), parts.end(), arrangements.begin(),
-                   [&](auto corners) {
-                       return pleiades::get_arrangement(pi, corners, s++);
+    std::transform(shadows.begin(), shadows.end(), arrangements.begin(),
+                   [&](auto shadow) {
+                       return get_arrangement<T>(shadow, s++);
                    });
 
     return std::accumulate(arrangements.begin() + 1, arrangements.end(),
@@ -155,6 +163,102 @@ void plot_arrangement(tpt::geometry::projection<3_D, T> pi, std::string name,
         }
     }
 }
+
+template <typename T>
+geometry_info
+construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisition_geometry, int proc_count) {
+    geometry_info g_info;
+
+    g_info.projection_count = acquisition_geometry.get_projection_count();
+
+    assert(g_info.projection_count > 0);
+
+    auto &pi = acquisition_geometry.get_projection(0);
+    g_info.shape = pi.shape;
+
+    g_info.corner.resize(proc_count);
+    g_info.local_shape.resize(proc_count);
+    for (int s = 0; s < proc_count; ++s) {
+        g_info.corner[s].resize(g_info.projection_count);
+        g_info.offsets[s].resize(g_info.projection_count);
+    }
+
+    return g_info;
+}
+
+template <typename T>
+void
+update_geometry_info_for_projection(geometry_info& g_info,
+                            int i,
+                            const projection_bboxes &bboxes) {
+    for (auto s = 0; s < bboxes.corner.size(); ++s) {
+        g_info.corner[s][i] = bboxes.corner[s];
+        g_info.local_shape[s].first = std::max(g_info.local_shape[s].first,
+                                           bboxes.shape[s].first);
+        g_info.local_shape[s].second = std::max(g_info.local_shape[s].second,
+                                           bboxes.shape[s].second);
+    }
+}
+
+template <typename T>
+void
+finalize_geometry_info(geometry_info& g_info) {
+    for (auto s = 0; s < g_info.offsets.size(); ++s) {
+        for (auto i = 0; i < g_info.offsets[s].size(); ++i) {
+            g_info.offsets[s][i] = i * g_info.local_shape[s].first *
+                                       g_info.local_shape[s].second;
+        }
+    }
+}
+
+
+
+template <typename T>
+tpt::math::vec2<T> coord_to_index(tpt::math::vec2<T> c, tpt::math::vec2<int> shape, tpt::math::vec2<T> size) {
+    return ((c * 2 * shape) / size + shape) * 0.5f;
+}
+
+template <typename T>
+projection_bboxes
+get_bboxes_for_projection(tpt::geometry::projection<3_D, T> pi,
+                  const std::vector<bg::model::polygon<tpt::math::vec2<T>>>& shadows) {
+    projection_bboxes b;
+    b.corner.resize(shadows.part());
+    b.shape.resize(shadows.part());
+
+    int s = 0;
+    for (auto& shadow : shadows) {
+        bg::model::box<tpt::math::vec2<T>>& box;
+        bg::envelope(shadow, box);
+
+        auto p1 = coord_to_index(box.min_corner(), pi.detector_shape, pi.detector_size);
+        auto p2 = coord_to_index(box.max_corner(), pi.detector_shape, pi.detector_size);
+
+        int y1 = std::floor(p1[0] - 0.001f);
+        int x1 = std::floor(p1[1] - 0.001f);
+        int y2 = std::ceil(p2[0] + 0.001f);
+        int x2 = std::ceil(p2[1] + 0.001f);
+
+        // clip to detector
+        y1 = std::max(y1, 0);
+        x1 = std::max(x1, 0);
+        y2 = std::min(y2, pi.detector_shape[0]);
+        x2 = std::min(x2, pi.detector_shape[1]);
+
+        // normalize empty boxes
+        if (y2 <= y1 || x2 <= x1) {
+            y1 = x1 = y2 = x1 = 0;
+        }
+
+        b.corner[s] = { y1, x1 };
+        b.shape[s] = { y2 - y1, x2 - x1 };
+
+        ++s;
+    }
+
+    return b;
+}
+
 
 template <typename T>
 std::vector<pleiades::face>

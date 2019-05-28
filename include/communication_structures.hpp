@@ -82,8 +82,6 @@ std::pair<std::vector<gather_task>, std::vector<scatter_task>>
 tasks(bulk::world& world,
       const tpt::geometry::base<3_D, T>& acquisition_geometry,
       const tpt::grcb::node<T>& root, tpt::grcb::cube<T> v) {
-    // TODO construct_geometry_info(acquisition_geometry);
-    auto g_info = geometry_info{};
 
     // alias local rank and number of processors
     auto s = world.rank();
@@ -122,14 +120,25 @@ tasks(bulk::world& world,
     // PHASE A: 'Dry run': assign owners, and measure buffers
     // process projections in a round-robin fashion
     // Here, i is the local index, and proj_id is the global index
-    // The only goal here is to compute D
+    // The only goal here is to compute D and g_info
+
+    auto proj_bboxes = bulk::coarray<projection_bboxes>(world,
+                         acquisition_geometry.projection_count());
+
     for (auto i = 0, proj_id = s;
          proj_id < acquisition_geometry.projection_count();
          proj_id += p, i += 1) {
         auto pi = acquisition_geometry.get_projection(proj_id);
 
+        auto shadows = get_shadows_for_projection(pi, root, v);
+        auto bboxes = get_bboxes_for_projection(g_info, shadows);
+
+        // send this projection's bboxes to all processors
+        for (auto u = 0; u < p; ++u)
+            proj_bboxes(u)[i] = bboxes;
+
         // get faces for the i-th projection
-        auto overlay = get_overlay_for_projection(pi, root, v);
+        auto overlay = get_overlay_for_projection(shadows);
         faces.push_back(compute_scanlines(pi, overlay));
 
         // make zero-initialized list of owners
@@ -173,6 +182,16 @@ tasks(bulk::world& world,
             D[t] += C[t * p + u];
         }
     }
+
+    // Construct geometry_info.
+    // Note that each processor is performing exactly the same set of
+    // calculations here, so this could be distributed if desired.
+    auto g_info = construct_geometry_info(acquisition_geometry);
+    for (auto proj_id = 0;
+             proj_id < acquisition_geometry.projection_count(); ++proj_id) {
+         update_geometry_info_for_projection(g_info, proj_id, proj_bboxes[proj_id]);
+    }
+    finalize_geometry_info(g_info);
 
     // PHASE B: Construct task info
     // prepare gather_tasks for contributors, scatter_tasks for owner
