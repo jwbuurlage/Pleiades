@@ -168,7 +168,7 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay) {
     //     detector centered around origin
     //     total dimensions given by pi.detector_size
     //     number of pixels given by is pi.detector_shape
-    //     order of coordinates: u, v
+    //     order of coordinates: v (=detector row), u (= detector column)
     //     scanlines have constant v
     //
     //   arrangement:
@@ -183,13 +183,13 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay) {
 
     std::vector<face> result;
 
-    Kernel::FT eds_u(pi.detector_size[0]);
-    Kernel::FT eds_v(pi.detector_size[1]);
+    Kernel::FT eds_u(pi.detector_size[1]);
+    Kernel::FT eds_v(pi.detector_size[0]);
 
-    std::cout << pi.detector_size[0] << "," << pi.detector_size[1] << std::endl;
+    std::cout << pi.detector_size[1] << "," << pi.detector_size[0] << std::endl;
 
     std::vector<int> TEST;
-    TEST.resize(pi.detector_shape[0] * pi.detector_shape[1]);
+    TEST.resize(pi.detector_shape[1] * pi.detector_shape[0]);
 
     for (auto fit = overlay.faces_begin(); fit != overlay.faces_end(); ++fit) {
         // skip "outer" face
@@ -214,12 +214,12 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay) {
 
         result_f.contributors = fit->data();
 
-        for (int iv = 0; iv < pi.detector_shape[1]; ++iv) {
+        for (int iv = 0; iv < pi.detector_shape[0]; ++iv) {
             Kernel::FT v = -eds_v / 2 + eds_v * (Kernel::FT(2 * iv + 1) /
-                                                 (2 * pi.detector_shape[1]));
+                                                 (2 * pi.detector_shape[0]));
 
-            Point2 a(-eds_u, v);
-            Point2 b(eds_u, v);
+            Point2 a(v, -eds_u);
+            Point2 b(v, eds_u);
             Line2 line(a, b);
 
             std::vector<Kernel::FT> us;
@@ -240,14 +240,14 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay) {
                     // the line, and an endpoint of an edge is hit only if it is
                     // the endpoint with the highest v coordinate.
                     if (const Point2* pp = boost::get<Point2>(&*result)) {
-                        Kernel::FT u = pp->x();
+                        Kernel::FT u = pp->y();
                         Kernel::FT ui =
-                            (u + eds_u / 2) / eds_u * pi.detector_shape[0];
+                            (u + eds_u / 2) / eds_u * pi.detector_shape[1];
                         if (*pp == edge->source()->point() ||
                             *pp == edge->target()->point()) {
-                            Kernel::FT v1 = edge->source()->point().y();
-                            Kernel::FT v2 = edge->target()->point().y();
-                            Kernel::FT vp = pp->y();
+                            Kernel::FT v1 = edge->source()->point().x();
+                            Kernel::FT v2 = edge->target()->point().x();
+                            Kernel::FT vp = pp->x();
                             assert(v1 != v2);
                             if (vp == CGAL::max(v1, v2))
                                 us.push_back(ui);
@@ -276,13 +276,13 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay) {
 
                 std::cout << u1i << "," << u2i << "; ";
 
-                if (u2i < 0 || u1i >= pi.detector_shape[0])
+                if (u2i < 0 || u1i >= pi.detector_shape[1])
                     continue;
 
                 if (u1i < 0)
                     u1i = 0;
-                if (u2i >= pi.detector_shape[0])
-                    u2i = pi.detector_shape[0];
+                if (u2i >= pi.detector_shape[1])
+                    u2i = pi.detector_shape[1];
 
                 // convert_to<int> rounds towards zero
                 int u1r = u1i.exact().convert_to<int>();
@@ -291,11 +291,11 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay) {
                 if (u1r == u2r)
                     continue;
 
-                assert(u1r >= 0 && u1r <= pi.detector_shape[0] - 1);
-                assert(u2r >= 1 && u2r <= pi.detector_shape[0]);
+                assert(u1r >= 0 && u1r <= pi.detector_shape[1] - 1);
+                assert(u2r >= 1 && u2r <= pi.detector_shape[1]);
                 assert(u2r > u1r);
 
-                int begin = iv * pi.detector_shape[0] + u1r;
+                int begin = iv * pi.detector_shape[1] + u1r;
                 int count = u2r - u1r;
 
                 for (int j = 0; j < count; ++j)
@@ -312,10 +312,10 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay) {
 
     // Output number of scanlines that overlap each pixel, and do a quick
     // H-convexity check
-    for (int y = 0; y < pi.detector_shape[1]; ++y) {
+    for (int y = 0; y < pi.detector_shape[0]; ++y) {
         int state = 0;
-        for (int x = 0; x < pi.detector_shape[0]; ++x) {
-            int t = TEST[y * pi.detector_shape[0] + x];
+        for (int x = 0; x < pi.detector_shape[1]; ++x) {
+            int t = TEST[y * pi.detector_shape[1] + x];
             if (state == 0) { // start of row
                 assert(t == 0 || t == 1);
                 if (t == 1)
