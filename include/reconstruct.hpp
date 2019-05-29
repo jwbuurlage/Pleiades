@@ -2,6 +2,8 @@
 
 #include "communication_structures.hpp"
 
+//#include <astra/cuda/3d/mem3d.h>
+
 namespace pleiades {
 
 // TODO implement gather and scatter steps
@@ -56,10 +58,22 @@ void reconstruct(bulk::world& world,
     auto red_buf = bulk::coarray<float>(world, meta.reduction_size);
     auto proj_buf = bulk::coarray<float>(world, meta.projection_size);
 
+    // Allocate GPU memory
+    // auto D_vol = astraCUDA3d::allocateGPUMemory(nx, ny, nz, astraCUDA3d::INIT_ZERO);
+    // auto D_proj = astraCUDA3d::allocateGPUMemory(nu, g.get_projection_count(), nv, astraCUDA3d::INIT_ZERO);
+    // auto D_iter = astraCUDA3d::allocateGPUMemory(nx, ny, nz, astraCUDA3d::INIT_ZERO);
+    // astraCUDA3d::SSubDimensions3D dims_vol{nx, ny, nz, nx, nx, ny, nz, 0, 0, 0};
+    // astraCUDA3d::SSubDimensions3D dims_proj{nu, g.get_projection_count(), nv, nu, nu, g.get_projection_count(), nv, 0, 0, 0};
+
     auto num_iters = 100u;
     for (auto iter = 0u; iter < num_iters; ++iter) {
-        // TODO ASTRA fp
-        // TODO download from GPU
+
+        // ASTRA fp (D_iter -> D_proj)
+        // astraCUDA3d::FP(proj_geom, D_proj, vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
+
+        // download from GPU
+        // astraCUDA3d::copyFromGPUMemory(proj_buf.data(), D_proj, dims_proj);
+
         gather(red_buf, gathers, proj_buf.data());
         // TODO perform reductions
         reduce(red_buf, proj_buf.data(), scatters);
@@ -67,10 +81,20 @@ void reconstruct(bulk::world& world,
         // subtract from b
         // (can do inner products in data space now before scatter (for cgls))
         scatter(proj_buf, gathers, proj_buf.data());
-        // TODO upload to GPU
-        // TODO ASTRA bp
-        // TODO Add to iterate
+
+        // upload to GPU
+        // astraCUDA3d::copyToGPUMemory(proj_buf.data(), D_proj, dims_proj);
+        // ASTRA bp (D_proj -> D_vol)
+        // astraCUDA3d::BP(proj_geom, D_proj, vol_geom, D_vol, 1);
+
+        // TODO Add D_vol to D_iter
     }
+
+    // TODO Store D_iter somewhere
+
+    // astraCUDA3d::freeGPUMemory(D_vol);
+    // astraCUDA3d::freeGPUMemory(D_proj);
+    // astraCUDA3d::freeGPUMemory(D_iter);
 }
 
 } // namespace pleiades
