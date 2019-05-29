@@ -47,38 +47,15 @@ struct scatter_task {
     std::vector<std::pair<std::vector<std::size_t>, scanline>> lines;
 };
 
-// TODO implement gather and scatter steps
-// template <typename T>
-// void gather(bulk::coarray<T> buffer, std::vector<gather_task> tasks,
-//            const T* data) {
-//    for (auto task : tasks) {
-//        for (auto [remote, line] : task.lines) {
-//            auto [begin, count] = line;
-//            buffer(task.owner)[{remote, remote + count}] = {&data[begin],
-//                                                            count};
-//        }
-//    }
-//    buffer.world.sync();
-//}
-//
-// template <typename T>
-// void scatter(bulk::coarray<T> buffer, std::vector<scatter_task> tasks,
-//             const T* data) {
-//    for (auto task : tasks) {
-//        for (auto [remotes, line] : task.lines) {
-//            for (auto i = 0u; i < task.contributors.size(); ++i) {
-//                auto remote = remotes[i];
-//                buffer(task.contributors[i])[{remote, remote + count}] = {
-//                    &data[begin], count};
-//            }
-//        }
-//        buffer.world.sync();
-//    }
-//}
+struct communication_meta_data {
+    std::size_t reduction_size;
+    std::size_t projection_size;
+};
+
 
 /** Outputs the gather and scatter tasks for the local processor */
 template <typename T>
-std::pair<std::vector<gather_task>, std::vector<scatter_task>>
+std::tuple<std::vector<gather_task>, std::vector<scatter_task>, communication_meta_data>
 tasks(bulk::world& world,
       const tpt::geometry::base<3_D, T>& acquisition_geometry,
       const tpt::grcb::node<T>& root,
@@ -275,6 +252,7 @@ tasks(bulk::world& world,
         local_gathers.push_back({owner, lines});
     }
 
+    auto red_buf_size = 0u;
     for (auto [contributors, proj_id, lines] : sq) {
         auto task = scatter_task{contributors, {}};
         for (auto [begin, count] : lines) {
@@ -285,11 +263,15 @@ tasks(bulk::world& world,
             }
             auto local_begin = localize(g_info, s, proj_id, begin);
             task.lines.push_back({begins, {local_begin, count}});
+            red_buf_size += count * contributors.size();
         }
         local_scatters.push_back(task);
     }
 
-    return {local_gathers, local_scatters};
+    auto proj_buf_size = std::get<0>(g_info.local_shape[s]) *
+                         std::get<1>(g_info.local_shape[s]) * g_info.projection_count;
+
+    return {local_gathers, local_scatters, {(std::size_t)proj_buf_size, red_buf_size}};
 }
 
 } // namespace pleiades
