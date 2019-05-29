@@ -46,7 +46,7 @@ std::size_t localize(geometry_info g, int t, int projection_index, std::size_t p
     auto b = j - std::get<1>(g.corner[t][projection_index]);
 
     // local coordinate
-    return g.offsets[t][projection_index] + a * std::get<1>(g.local_shape[t]) + b;
+    return g.offsets[t][projection_index] + a * std::get<1>(g.local_shape[t]) * g.projection_count + b;
 }
 
 // scanline is a consecutive subarray from position `begin` up to `begin +

@@ -208,7 +208,7 @@ void finalize_geometry_info(geometry_info& g_info)
     for (auto s = 0; s < g_info.offsets.size(); ++s) {
         for (auto i = 0; i < g_info.offsets[s].size(); ++i) {
             g_info.offsets[s][i] =
-            i * g_info.local_shape[s].first * g_info.local_shape[s].second;
+            i * std::get<1>(g_info.local_shape[s]);
         }
     }
 }
