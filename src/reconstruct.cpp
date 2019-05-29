@@ -10,7 +10,8 @@
 
 using T = float;
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
     auto app = CLI::App{"Run a reconstruction job"};
 
     auto p = 2;
@@ -20,8 +21,7 @@ int main(int argc, char* argv[]) {
     app.add_option("-p", p, "number of parts", p);
 
     // file input / output
-    app.add_option("--geometry", geometry_filename, "geometry as .toml")
-        ->required();
+    app.add_option("--geometry", geometry_filename, "geometry as .toml")->required();
 
     CLI11_PARSE(app, argc, argv);
 

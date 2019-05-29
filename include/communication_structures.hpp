@@ -81,7 +81,9 @@ template <typename T>
 std::pair<std::vector<gather_task>, std::vector<scatter_task>>
 tasks(bulk::world& world,
       const tpt::geometry::base<3_D, T>& acquisition_geometry,
-      const tpt::grcb::node<T>& root, tpt::grcb::cube<T> v) {
+      const tpt::grcb::node<T>& root,
+      tpt::grcb::cube<T> v)
+{
 
     // alias local rank and number of processors
     auto s = world.rank();
@@ -92,8 +94,7 @@ tasks(bulk::world& world,
     // Note that each processor is performing exactly the same set of
     // calculations here, so this could be distributed if desired.
     auto g_info = construct_geometry_info(acquisition_geometry);
-    for (auto proj_id = 0;
-             proj_id < acquisition_geometry.projection_count(); ++proj_id) {
+    for (auto proj_id = 0; proj_id < acquisition_geometry.projection_count(); ++proj_id) {
         auto pi = acquisition_geometry.get_projection(proj_id);
         auto shadows = get_shadows_for_projection(pi, root, v);
         auto bboxes = get_bboxes_for_projection(pi, shadows);
@@ -139,8 +140,7 @@ tasks(bulk::world& world,
     // The only goal here is to compute D
 
     for (auto i = 0, proj_id = s;
-         proj_id < acquisition_geometry.projection_count();
-         proj_id += p, i += 1) {
+         proj_id < acquisition_geometry.projection_count(); proj_id += p, i += 1) {
         auto pi = acquisition_geometry.get_projection(proj_id);
 
         // get faces for the i-th projection
@@ -157,13 +157,12 @@ tasks(bulk::world& world,
         auto f = 0;
         for (auto& face : faces[i]) {
             // assign a random owner to the face from the list of contributors
-            owners[i][f] =
-                face.contributors[engine() % face.contributors.size()];
+            owners[i][f] = face.contributors[engine() % face.contributors.size()];
 
             // measure the number of pixels
-            auto pixels = std::accumulate(
-                face.scanlines.begin(), face.scanlines.end(), 0u,
-                [](auto total, auto l) { return total + l.count; });
+            auto pixels =
+            std::accumulate(face.scanlines.begin(), face.scanlines.end(), 0u,
+                            [](auto total, auto l) { return total + l.count; });
 
             B[owners[i][f]] += face.contributors.size() * pixels;
 
@@ -222,8 +221,7 @@ tasks(bulk::world& world,
 
     // juggle indices
     for (auto i = 0, proj_id = s;
-         proj_id < acquisition_geometry.projection_count();
-         proj_id += p, i += 1) {
+         proj_id < acquisition_geometry.projection_count(); proj_id += p, i += 1) {
 
         auto f = 0;
         for (auto& face : faces[i]) {
@@ -232,13 +230,12 @@ tasks(bulk::world& world,
             // now we construct the task info
             // first, for each contributor we construct the gather task. the
             // lines are to be filled
-            auto gathers =
-                std::vector<gather_info>(face.contributors.size(), {t, {}});
+            auto gathers = std::vector<gather_info>(face.contributors.size(), {t, {}});
             for (auto [begin, count] : face.scanlines) {
                 for (auto i = 0u; i < face.contributors.size(); ++i) {
                     auto u = face.contributors[i];
                     gathers[i].lines.push_back(
-                        {D[t], {localize(g_info, u, proj_id, begin), count}});
+                    {D[t], {localize(g_info, u, proj_id, begin), count}});
                     D[t] += count;
                 }
             }

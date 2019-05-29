@@ -8,7 +8,8 @@ namespace fst = std::filesystem;
 #include <boost/geometry.hpp>
 namespace bg = boost::geometry;
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
     using T = float;
 
     CLI::App app{"Tests for arrangement communication"};
@@ -20,8 +21,7 @@ int main(int argc, char* argv[]) {
     app.add_option("-p", p, "number of parts", p);
 
     // file input / output
-    app.add_option("--geometry", geometry_filename, "geometry as .toml")
-        ->required();
+    app.add_option("--geometry", geometry_filename, "geometry as .toml")->required();
 
     CLI11_PARSE(app, argc, argv);
 
@@ -39,9 +39,8 @@ int main(int argc, char* argv[]) {
     // plot overlaps
     for (int i = 0; i < 9; ++i) {
         auto pi = g.get_projection(g.projection_count() / 9 * i);
-        tpt::grcb::plot::overlaps(
-            pi, root, corners, "full_overlap_" + name + "_" + std::to_string(i),
-            p);
+        tpt::grcb::plot::overlaps(pi, root, corners,
+                                  "full_overlap_" + name + "_" + std::to_string(i), p);
     }
 
     auto pi = g.get_projection(0);

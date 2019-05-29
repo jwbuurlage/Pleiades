@@ -5,7 +5,8 @@
 
 #include "arrangements.hpp"
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
     using T = float;
 
     CLI::App app{"Restricted geometry stats"};
@@ -17,8 +18,7 @@ int main(int argc, char* argv[]) {
     app.add_option("-p", p, "number of parts", p);
 
     // file input / output
-    app.add_option("--geometry", geometry_filename, "geometry as .toml")
-        ->required();
+    app.add_option("--geometry", geometry_filename, "geometry as .toml")->required();
 
     CLI11_PARSE(app, argc, argv);
 
@@ -29,8 +29,7 @@ int main(int argc, char* argv[]) {
 
     auto root = tpt::grcb::partition(v, g, std::log2(p), {});
 
-    auto parts =
-        pleiades::partitioning_to_corners<T>(*root, tpt::grcb::corners(v));
+    auto parts = pleiades::partitioning_to_corners<T>(*root, tpt::grcb::corners(v));
 
     for (int s = 0; s < p; ++s) {
         auto max_w = 0;
@@ -41,8 +40,8 @@ int main(int argc, char* argv[]) {
         auto lv = tpt::volume<3_D, T>({1024, 1024, 1024}, a, b - a);
 
         // WARNING: unsafe cast to trajectory geometry
-        auto rg = tpt::distributed::restricted_geometry<T>(
-            (tpt::geometry::trajectory<3_D, T>&)g, lv);
+        auto rg =
+        tpt::distributed::restricted_geometry<T>((tpt::geometry::trajectory<3_D, T>&)g, lv);
 
         for (auto i = 0; i < rg.projection_count(); ++i) {
             auto shape = rg.projection_shape(i);
