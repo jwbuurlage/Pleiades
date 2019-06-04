@@ -59,7 +59,6 @@ void reconstruct(bulk::world& world,
     auto proj_buf = bulk::coarray<float>(world, meta.projection_size);
 
     // Allocate GPU memory
-    // auto D_vol = astraCUDA3d::allocateGPUMemory(nx, ny, nz, astraCUDA3d::INIT_ZERO);
     // auto D_proj = astraCUDA3d::allocateGPUMemory(nu, g.get_projection_count(), nv, astraCUDA3d::INIT_ZERO);
     // auto D_iter = astraCUDA3d::allocateGPUMemory(nx, ny, nz, astraCUDA3d::INIT_ZERO);
     // astraCUDA3d::SSubDimensions3D dims_vol{nx, ny, nz, nx, nx, ny, nz, 0, 0, 0};
@@ -69,6 +68,7 @@ void reconstruct(bulk::world& world,
     for (auto iter = 0u; iter < num_iters; ++iter) {
 
         // ASTRA fp (D_iter -> D_proj)
+        // astraCUDA3d::zeroGPUMemory(D_proj, nu, g.get_projection_count(), nv);
         // astraCUDA3d::FP(proj_geom, D_proj, vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
 
         // download from GPU
@@ -84,15 +84,13 @@ void reconstruct(bulk::world& world,
 
         // upload to GPU
         // astraCUDA3d::copyToGPUMemory(proj_buf.data(), D_proj, dims_proj);
-        // ASTRA bp (D_proj -> D_vol)
-        // astraCUDA3d::BP(proj_geom, D_proj, vol_geom, D_vol, 1);
-
-        // TODO Add D_vol to D_iter
+        // ASTRA bp (D_proj -> add to D_iter)
+        // astraCUDA3d::BP(proj_geom, D_proj, vol_geom, D_iter, 1);
     }
 
-    // TODO Store D_iter somewhere
+    // Store D_iter
+    // astraCUDA3d::copyFromGPUMemory(buf, D_iter, dims_vol);
 
-    // astraCUDA3d::freeGPUMemory(D_vol);
     // astraCUDA3d::freeGPUMemory(D_proj);
     // astraCUDA3d::freeGPUMemory(D_iter);
 }
