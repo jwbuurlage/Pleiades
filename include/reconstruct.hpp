@@ -41,6 +41,62 @@ void scatter(bulk::coarray<T> proj_buf, std::vector<scatter_task> tasks, const T
     }
 }
 
+astra::SConeProjection get_astra_vectors(const tpt::geometry::base<3_D, float>& g, int index)
+{
+    math::vec<3_D, float> src = g.source_location(index);
+    math::vec<3_D, float> det = g.detector_corner(index);
+    std::array<math::vec<3_D, T>, 2> delta = g.projection_delta(index);
+
+    // TODO: Check/fix coordinate order
+    // Assumption for now:
+    //  volume: x, y, z
+    //  detector: v, u
+
+    astra::SConeProjection vec;
+    vec.fSrcX  = src[0];
+    vec.fSrcY  = src[1];
+    vec.fSrcZ  = src[2];
+    vec.fDetSX = det[0];
+    vec.fDetSY = det[1];
+    vec.fDetSZ = det[2];
+    vec.fDetUX = delta[1][0];
+    vec.fDetUY = delta[1][1];
+    vec.fDetUZ = delta[1][2];
+    vec.fDetVX = delta[0][0];
+    vec.fDetVY = delta[0][1];
+    vec.fDetVZ = delta[0][2];
+
+    return vec;
+}
+
+astra::SConeProjection get_astra_subvectors(const tpt::geometry::base<3_D, float>& g, int index, const geometry_info &gi, int proc)
+{
+    astra::SConeProjection vec = get_astra_vectors(g, index);
+
+    // translate detector to local corner
+
+    vec.fDetSX += std::get<0>(gi.corner[proc_id][index]) * vec.fDetVX;
+    vec.fDetSY += std::get<0>(gi.corner[proc_id][index]) * vec.fDetVY;
+    vec.fDetSZ += std::get<0>(gi.corner[proc_id][index]) * vec.fDetVZ;
+
+    vec.fDetSX += std::get<1>(gi.corner[proc_id][index]) * vec.fDetUX;
+    vec.fDetSY += std::get<1>(gi.corner[proc_id][index]) * vec.fDetUY;
+    vec.fDetSZ += std::get<1>(gi.corner[proc_id][index]) * vec.fDetUZ;
+
+    return vec;
+}
+
+astra::CConeVecProjectionGeometry3D *get_astra_subgeometry(const tpt::geometry::base<3_D, float>& g, const geometry_info &gi, int proc)
+{
+    astra::SConeProjection *vecs = new astra::SConeProjection[gi.projection_count];
+    for (auto i = 0; i < gi.projection_count; ++i)
+        vecs[i] = get_astra_subvectors(g, i, gi, proc);
+    astra::CConeVecProjectionGeometry3D *geom = new astra::CConeVecProjectionGeometry3D(gi.projection_count, std::get<0>(gi.shape), std::get<1>(gi.shape), vecs);
+    delete[] vecs;
+
+    return geom;
+}
+
 void reconstruct(bulk::world& world,
                  const tpt::grcb::node<float>& root,
                  tpt::geometry::base<3_D, float>& g,
@@ -54,6 +110,7 @@ void reconstruct(bulk::world& world,
     // make projection and reduction buffers
     // what size?
     // should `tasks` return additional metadata?
+    // (we probably need geometry_info for generating geometries.)
 
     auto red_buf = bulk::coarray<float>(world, meta.reduction_size);
     auto proj_buf = bulk::coarray<float>(world, meta.projection_size);
@@ -63,6 +120,8 @@ void reconstruct(bulk::world& world,
     // auto D_iter = astraCUDA3d::allocateGPUMemory(nx, ny, nz, astraCUDA3d::INIT_ZERO);
     // astraCUDA3d::SSubDimensions3D dims_vol{nx, ny, nz, nx, nx, ny, nz, 0, 0, 0};
     // astraCUDA3d::SSubDimensions3D dims_proj{nu, g.get_projection_count(), nv, nu, nu, g.get_projection_count(), nv, 0, 0, 0};
+
+    // astra::CProjectionGeometry3D *proj_geom = get_astra_subgeometry(g, geometry_info, proc);
 
     auto num_iters = 100u;
     for (auto iter = 0u; iter < num_iters; ++iter) {
@@ -93,6 +152,7 @@ void reconstruct(bulk::world& world,
 
     // astraCUDA3d::freeGPUMemory(D_proj);
     // astraCUDA3d::freeGPUMemory(D_iter);
+    // delete proj_geom;
 }
 
 } // namespace pleiades
