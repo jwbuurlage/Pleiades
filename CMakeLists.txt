@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
 project(pleiades)
 
+include(FindPkgConfig)
+
 add_subdirectory(ext/tpt)
 add_subdirectory(ext/bulk)
 
@@ -12,6 +14,16 @@ target_compile_options(pleiades PUBLIC
     "-Werror"
     "-Wall"
     "-O3")
+
+# --------------------------------------------------------------------------------------------
+# ASTRA
+pkg_check_modules(ASTRA REQUIRED "libastra")
+
+add_library(astra-toolbox INTERFACE)
+target_include_directories(astra-toolbox SYSTEM INTERFACE ${ASTRA_INCLUDE_DIRS})
+target_compile_definitions(astra-toolbox INTERFACE "ASTRA_CUDA")
+target_link_libraries(astra-toolbox INTERFACE ${ASTRA_LDFLAGS})
+# --------------------------------------------------------------------------------------------
 
 set(CGAL_DIR "ext/cgal/")
 set(CGAL_HEADER_ONLY on)
@@ -27,6 +39,7 @@ target_link_libraries(pleiades PUBLIC
     tpt
     gmp
     mpfr
+    astra-toolbox
 )
 
 add_executable("comstruct" "src/communication_structure.cpp")
