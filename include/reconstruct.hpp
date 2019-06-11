@@ -58,9 +58,9 @@ astra::SConeProjection get_astra_vectors(const tpt::geometry::base<3_D, float>& 
     //  detector: v, u
 
     astra::SConeProjection vec;
-    vec.fSrcX  = src[0];
-    vec.fSrcY  = src[1];
-    vec.fSrcZ  = src[2];
+    vec.fSrcX = src[0];
+    vec.fSrcY = src[1];
+    vec.fSrcZ = src[2];
     vec.fDetSX = det[0];
     vec.fDetSY = det[1];
     vec.fDetSZ = det[2];
@@ -74,7 +74,10 @@ astra::SConeProjection get_astra_vectors(const tpt::geometry::base<3_D, float>& 
     return vec;
 }
 
-astra::SConeProjection get_astra_subvectors(const tpt::geometry::base<3_D, float>& g, int index, const geometry_info &gi, int proc)
+astra::SConeProjection get_astra_subvectors(const tpt::geometry::base<3_D, float>& g,
+                                            int index,
+                                            const geometry_info& gi,
+                                            int proc)
 {
     astra::SConeProjection vec = get_astra_vectors(g, index);
 
@@ -91,12 +94,15 @@ astra::SConeProjection get_astra_subvectors(const tpt::geometry::base<3_D, float
     return vec;
 }
 
-astra::CConeVecProjectionGeometry3D *get_astra_subgeometry(const tpt::geometry::base<3_D, float>& g, const geometry_info &gi, int proc)
+astra::CConeVecProjectionGeometry3D*
+get_astra_subgeometry(const tpt::geometry::base<3_D, float>& g, const geometry_info& gi, int proc)
 {
-    astra::SConeProjection *vecs = new astra::SConeProjection[gi.projection_count];
+    astra::SConeProjection* vecs = new astra::SConeProjection[gi.projection_count];
     for (auto i = 0; i < gi.projection_count; ++i)
         vecs[i] = get_astra_subvectors(g, i, gi, proc);
-    astra::CConeVecProjectionGeometry3D *geom = new astra::CConeVecProjectionGeometry3D(gi.projection_count, std::get<0>(gi.shape), std::get<1>(gi.shape), vecs);
+    astra::CConeVecProjectionGeometry3D* geom =
+    new astra::CConeVecProjectionGeometry3D(gi.projection_count, std::get<0>(gi.shape),
+                                            std::get<1>(gi.shape), vecs);
     delete[] vecs;
 
     return geom;

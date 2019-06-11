@@ -7,3 +7,6 @@
 [submodule "ext/bulk"]
 	path = ext/bulk
 	url = https://github.com/jwbuurlage/Bulk.git
+[submodule "ext/astra"]
+	path = ext/astra
+	url = https://github.com/astra-toolbox/astra-toolbox.git
