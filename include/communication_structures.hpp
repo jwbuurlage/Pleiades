@@ -47,6 +47,13 @@ struct scatter_task {
     std::vector<std::pair<std::vector<std::size_t>, scanline>> lines;
 };
 
+struct reduction_task {
+    std::size_t in;
+    std::size_t count;
+    std::size_t contributors;
+    std::size_t out;
+};
+
 struct communication_meta_data {
     std::size_t reduction_size;
     std::size_t projection_size;
@@ -55,7 +62,7 @@ struct communication_meta_data {
 
 /** Outputs the gather and scatter tasks for the local processor */
 template <typename T>
-std::tuple<std::vector<gather_task>, std::vector<scatter_task>, communication_meta_data>
+std::tuple<std::vector<gather_task>, std::vector<scatter_task>, std::vector<reduction_task>, communication_meta_data>
 tasks(bulk::world& world,
       const tpt::geometry::base<3_D, T>& acquisition_geometry,
       const tpt::grcb::node<T>& root,
@@ -195,6 +202,7 @@ tasks(bulk::world& world,
 
     auto ss = std::vector<std::vector<scatter_info>>(p);
     auto gs = std::vector<std::vector<gather_info>>(p);
+    auto rs = std::vector<std::vector<reduction_task>>(p);
 
     // juggle indices
     for (auto i = 0, proj_id = s;
@@ -209,6 +217,8 @@ tasks(bulk::world& world,
             // lines are to be filled
             auto gathers = std::vector<gather_info>(face.contributors.size(), {t, {}});
             for (auto [begin, count] : face.scanlines) {
+                rs.push_back({D[t], count, face.contributors.size(),
+                              localize(g_info, t, proj_id, begin)});
                 for (auto i = 0u; i < face.contributors.size(); ++i) {
                     auto u = face.contributors[i];
                     gathers[i].lines.push_back(
@@ -230,6 +240,7 @@ tasks(bulk::world& world,
     // PHASE C: Distribute all tasks
     auto sq = bulk::queue<int[], int, scanline[]>(world);
     auto gq = bulk::queue<int, std::pair<std::size_t, scanline>[]>(world);
+    auto rq = bulk::queue<reduction_task>(world);
 
     for (int t = 0; t < p; ++t) {
         for (auto info : ss[t]) {
@@ -238,13 +249,16 @@ tasks(bulk::world& world,
         for (auto info : gs[t]) {
             gq(t).send(info.owner, info.lines);
         }
+        for (auto task : rs[t]) {
+            rq(t).send(task);
+        }
     }
 
     world.sync();
 
     // next: construct tasks
     std::vector<gather_task> local_gathers;
-    std::vector<scatter_task> local_scatters;
+    std::vector<reduction_task> local_reductions;
     local_gathers.reserve(gq.size());
     local_scatters.reserve(sq.size());
 
@@ -271,7 +285,11 @@ tasks(bulk::world& world,
     auto proj_buf_size = std::get<0>(g_info.local_shape[s]) *
                          std::get<1>(g_info.local_shape[s]) * g_info.projection_count;
 
-    return {local_gathers, local_scatters, {(std::size_t)proj_buf_size, red_buf_size}};
+
+    auto local_reduces = std::vector<gather_task>(rq.size());
+    std::copy(rq.begin(), rq.end(), local_reduces.begin());
+
+    return {local_gathers, local_scatters, local_reduces, {(std::size_t)proj_buf_size, red_buf_size}};
 }
 
 } // namespace pleiades

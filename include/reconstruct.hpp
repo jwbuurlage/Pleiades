@@ -2,7 +2,7 @@
 
 #include "communication_structures.hpp"
 
-//#include <astra/cuda/3d/mem3d.h>
+#include <astra/cuda/3d/mem3d.h>
 
 namespace pleiades {
 
@@ -20,10 +20,15 @@ void gather(bulk::coarray<T> red_buf, std::vector<gather_task> tasks, const T* p
 }
 
 template <typename T>
-void reduce(bulk::coarray<T> red_buf, std::vector<scatter_task> tasks, T* proj_data)
+void reduce(bulk::coarray<T> red_buf, std::vector<reduction_task> tasks, T* proj_data)
 {
-    // reduce from red_buf into proj_data
-    // does scatter give sufficient info?
+    for (auto [in, count, blocks, out] : tasks) {
+        for (auto i = 0; i < count; ++i) {
+            for (auto j = 0; j < blocks; ++j) {
+                proj_data[out + i] += red_buf[in + j * count];
+            }
+        }
+    }
 }
 
 template <typename T>
@@ -105,7 +110,8 @@ void reconstruct(bulk::world& world,
     // ... do some Landweber iterations for simplicity
 
     // prepare tasks
-    auto [gathers, scatters, meta] = tasks(world, g, root, tpt::grcb::corners(v));
+    auto [gathers, scatters, reduces, meta] =
+    tasks(world, g, root, tpt::grcb::corners(v));
 
     // make projection and reduction buffers
     // what size?
@@ -134,12 +140,13 @@ void reconstruct(bulk::world& world,
         // astraCUDA3d::copyFromGPUMemory(proj_buf.data(), D_proj, dims_proj);
 
         gather(red_buf, gathers, proj_buf.data());
-        // TODO perform reductions
-        reduce(red_buf, proj_buf.data(), scatters);
+
+        // perform reductions
+        reduce(red_buf, reduces, proj_buf.data());
 
         // subtract from b
         // (can do inner products in data space now before scatter (for cgls))
-        scatter(proj_buf, gathers, proj_buf.data());
+        scatter(proj_buf, scatters, proj_buf.data());
 
         // upload to GPU
         // astraCUDA3d::copyToGPUMemory(proj_buf.data(), D_proj, dims_proj);
