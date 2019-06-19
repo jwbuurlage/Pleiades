@@ -2,29 +2,32 @@
 
 #include "communication_structures.hpp"
 
+#include <astra/Globals.h>
 #include <astra/cuda/3d/mem3d.h>
+#include <astra/ConeVecProjectionGeometry3D.h>
 
 namespace pleiades {
 
 // TODO implement gather and scatter steps
 template <typename T>
-void gather(bulk::coarray<T> red_buf, std::vector<gather_task> tasks, const T* proj_data)
+void gather(bulk::coarray<T>& red_buf, std::vector<gather_task> tasks, const T* proj_data)
 {
     for (auto task : tasks) {
         for (auto [remote, line] : task.lines) {
             auto [begin, count] = line;
-            red_buf(task.owner)[{remote, remote + count}] = {&proj_data[begin], count};
+            // TODO: is int large enough for these indices? const_cast?
+            red_buf(task.owner)[{(int)remote, (int)(remote + count)}] = {const_cast<T*>(&proj_data[begin]), count};
         }
     }
-    buffer.world.sync();
+    red_buf.world().sync();
 }
 
 template <typename T>
-void reduce(bulk::coarray<T> red_buf, std::vector<reduction_task> tasks, T* proj_data)
+void reduce(bulk::coarray<T>& red_buf, std::vector<reduction_task> tasks, T* proj_data)
 {
     for (auto [in, count, blocks, out] : tasks) {
-        for (auto i = 0; i < count; ++i) {
-            for (auto j = 0; j < blocks; ++j) {
+        for (auto i = 0u; i < count; ++i) {
+            for (auto j = 0u; j < blocks; ++j) {
                 proj_data[out + i] += red_buf[in + j * count];
             }
         }
@@ -32,25 +35,25 @@ void reduce(bulk::coarray<T> red_buf, std::vector<reduction_task> tasks, T* proj
 }
 
 template <typename T>
-void scatter(bulk::coarray<T> proj_buf, std::vector<scatter_task> tasks, const T* proj_data)
+void scatter(bulk::coarray<T>& proj_buf, std::vector<scatter_task> tasks, const T* proj_data)
 {
     for (auto task : tasks) {
         for (auto [begins, line] : task.lines) {
             for (auto i = 0u; i < task.contributors.size(); ++i) {
                 auto remote = begins[i];
                 auto [local, count] = line;
-                buffer(task.contributors[i])[{remote, remote + count}] = {&data[local], count};
+                proj_buf(task.contributors[i])[{(int)remote, (int)(remote + count)}] = {const_cast<T*>(&proj_data[local]), count};
             }
         }
-        buffer.world.sync();
+        proj_buf.world().sync();
     }
 }
 
 astra::SConeProjection get_astra_vectors(const tpt::geometry::base<3_D, float>& g, int index)
 {
-    math::vec<3_D, float> src = g.source_location(index);
-    math::vec<3_D, float> det = g.detector_corner(index);
-    std::array<math::vec<3_D, T>, 2> delta = g.projection_delta(index);
+    tpt::math::vec<3_D, float> src = g.source_location(index);
+    tpt::math::vec<3_D, float> det = g.detector_corner(index);
+    std::array<tpt::math::vec<3_D, float>, 2> delta = g.projection_delta(index);
 
     // TODO: Check/fix coordinate order
     // Assumption for now:
@@ -77,7 +80,7 @@ astra::SConeProjection get_astra_vectors(const tpt::geometry::base<3_D, float>& 
 astra::SConeProjection get_astra_subvectors(const tpt::geometry::base<3_D, float>& g,
                                             int index,
                                             const geometry_info& gi,
-                                            int proc)
+                                            int proc_id)
 {
     astra::SConeProjection vec = get_astra_vectors(g, index);
 
@@ -143,19 +146,19 @@ void reconstruct(bulk::world& world,
         // astraCUDA3d::FP(proj_geom, D_proj, vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
 
         // download from GPU
-        // astraCUDA3d::copyFromGPUMemory(proj_buf.data(), D_proj, dims_proj);
+        // astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
 
-        gather(red_buf, gathers, proj_buf.data());
+        gather(red_buf, gathers, proj_buf.begin());
 
         // perform reductions
-        reduce(red_buf, reduces, proj_buf.data());
+        reduce(red_buf, reduces, proj_buf.begin());
 
         // subtract from b
         // (can do inner products in data space now before scatter (for cgls))
-        scatter(proj_buf, scatters, proj_buf.data());
+        scatter(proj_buf, scatters, proj_buf.begin());
 
         // upload to GPU
-        // astraCUDA3d::copyToGPUMemory(proj_buf.data(), D_proj, dims_proj);
+        // astraCUDA3d::copyToGPUMemory(proj_buf.begin(), D_proj, dims_proj);
         // ASTRA bp (D_proj -> add to D_iter)
         // astraCUDA3d::BP(proj_geom, D_proj, vol_geom, D_iter, 1);
     }

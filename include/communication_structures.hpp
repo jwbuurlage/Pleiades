@@ -77,7 +77,7 @@ tasks(bulk::world& world,
     // Construct geometry_info.
     // Note that each processor is performing exactly the same set of
     // calculations here, so this could be distributed if desired.
-    auto g_info = construct_geometry_info(acquisition_geometry);
+    auto g_info = construct_geometry_info(acquisition_geometry, p);
     for (auto proj_id = 0; proj_id < acquisition_geometry.projection_count(); ++proj_id) {
         auto pi = acquisition_geometry.get_projection(proj_id);
         auto shadows = get_shadows_for_projection(pi, root, v);
@@ -129,7 +129,7 @@ tasks(bulk::world& world,
 
         // get faces for the i-th projection
         auto shadows = get_shadows_for_projection(pi, root, v);
-        auto overlay = get_overlay_for_projection(shadows);
+        auto overlay = get_overlay_for_projection<float>(shadows);
         faces.push_back(compute_scanlines(pi, overlay));
 
         // make zero-initialized list of owners
@@ -166,7 +166,7 @@ tasks(bulk::world& world,
 
     // D[t] is the beginning of our gather buffer (Buffer (2)) portion in
     // processor t
-    auto D = std::vector<int>(p, 0);
+    auto D = std::vector<size_t>(p, 0);
     for (int t = 0; t < p; ++t) {
         for (int u = 0; u < s; ++u) {
             D[t] += C[t * p + u];
@@ -217,8 +217,8 @@ tasks(bulk::world& world,
             // lines are to be filled
             auto gathers = std::vector<gather_info>(face.contributors.size(), {t, {}});
             for (auto [begin, count] : face.scanlines) {
-                rs.push_back({D[t], count, face.contributors.size(),
-                              localize(g_info, t, proj_id, begin)});
+                rs.push_back({{D[t], count, face.contributors.size(),
+                              localize(g_info, t, proj_id, begin)}});
                 for (auto i = 0u; i < face.contributors.size(); ++i) {
                     auto u = face.contributors[i];
                     gathers[i].lines.push_back(
@@ -258,7 +258,7 @@ tasks(bulk::world& world,
 
     // next: construct tasks
     std::vector<gather_task> local_gathers;
-    std::vector<reduction_task> local_reductions;
+    std::vector<scatter_task> local_scatters;
     local_gathers.reserve(gq.size());
     local_scatters.reserve(sq.size());
 
@@ -286,7 +286,7 @@ tasks(bulk::world& world,
                          std::get<1>(g_info.local_shape[s]) * g_info.projection_count;
 
 
-    auto local_reduces = std::vector<gather_task>(rq.size());
+    auto local_reduces = std::vector<reduction_task>(rq.size());
     std::copy(rq.begin(), rq.end(), local_reduces.begin());
 
     return {local_gathers, local_scatters, local_reduces, {(std::size_t)proj_buf_size, red_buf_size}};

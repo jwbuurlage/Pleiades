@@ -173,12 +173,12 @@ construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisition_geometry,
 {
     geometry_info g_info;
 
-    g_info.projection_count = acquisition_geometry.get_projection_count();
+    g_info.projection_count = acquisition_geometry.projection_count();
 
     assert(g_info.projection_count > 0);
 
-    auto& pi = acquisition_geometry.get_projection(0);
-    g_info.shape = pi.shape;
+    auto pi = acquisition_geometry.get_projection(0);
+    g_info.shape = { pi.detector_shape[0], pi.detector_shape[1] };
 
     g_info.corner.resize(proc_count);
     g_info.local_shape.resize(proc_count);
@@ -190,10 +190,9 @@ construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisition_geometry,
     return g_info;
 }
 
-template <typename T>
 void update_geometry_info_for_projection(geometry_info& g_info, int i, const projection_bboxes& bboxes)
 {
-    for (auto s = 0; s < bboxes.corner.size(); ++s) {
+    for (auto s = 0u; s < bboxes.corner.size(); ++s) {
         g_info.corner[s][i] = bboxes.corner[s];
         g_info.local_shape[s].first =
         std::max(g_info.local_shape[s].first, bboxes.shape[s].first);
@@ -202,11 +201,10 @@ void update_geometry_info_for_projection(geometry_info& g_info, int i, const pro
     }
 }
 
-template <typename T>
 void finalize_geometry_info(geometry_info& g_info)
 {
-    for (auto s = 0; s < g_info.offsets.size(); ++s) {
-        for (auto i = 0; i < g_info.offsets[s].size(); ++i) {
+    for (auto s = 0u; s < g_info.offsets.size(); ++s) {
+        for (auto i = 0u; i < g_info.offsets[s].size(); ++i) {
             g_info.offsets[s][i] =
             i * std::get<1>(g_info.local_shape[s]);
         }
@@ -218,7 +216,8 @@ template <typename T>
 tpt::math::vec2<T>
 coord_to_index(tpt::math::vec2<T> c, tpt::math::vec2<int> shape, tpt::math::vec2<T> size)
 {
-    return ((c * 2 * shape) / size + shape) * 0.5f;
+    tpt::math::vec2<T> sh = { T(shape[0]), T(shape[1]) };
+    return ((c * 2.0f * sh) / size + sh) * 0.5f;
 }
 
 template <typename T>
@@ -227,16 +226,16 @@ get_bboxes_for_projection(tpt::geometry::projection<3_D, T> pi,
                           const std::vector<bg::model::polygon<tpt::math::vec2<T>>>& shadows)
 {
     projection_bboxes b;
-    b.corner.resize(shadows.part());
-    b.shape.resize(shadows.part());
+    b.corner.resize(shadows.size());
+    b.shape.resize(shadows.size());
 
     int s = 0;
     for (auto& shadow : shadows) {
-        bg::model::box<tpt::math::vec2<T>>& box;
+        bg::model::box<tpt::math::vec2<T>> box;
         bg::envelope(shadow, box);
 
-        auto p1 = coord_to_index(box.min_corner(), pi.detector_shape, pi.detector_size);
-        auto p2 = coord_to_index(box.max_corner(), pi.detector_shape, pi.detector_size);
+        auto p1 = coord_to_index<float>(box.min_corner(), pi.detector_shape, pi.detector_size);
+        auto p2 = coord_to_index<float>(box.max_corner(), pi.detector_shape, pi.detector_size);
 
         int y1 = std::floor(p1[0] - 0.001f);
         int x1 = std::floor(p1[1] - 0.001f);
@@ -251,7 +250,7 @@ get_bboxes_for_projection(tpt::geometry::projection<3_D, T> pi,
 
         // normalize empty boxes
         if (y2 <= y1 || x2 <= x1) {
-            y1 = x1 = y2 = x1 = 0;
+            y1 = x1 = y2 = x2 = 0;
         }
 
         b.corner[s] = {y1, x1};
