@@ -4,6 +4,7 @@
 
 #include <astra/ConeVecProjectionGeometry3D.h>
 #include <astra/Globals.h>
+#include <astra/VolumeGeometry3D.h>
 #include <astra/cuda/3d/mem3d.h>
 
 namespace pleiades {
@@ -118,7 +119,9 @@ void reconstruct(bulk::world& world,
                  tpt::geometry::base<3_D, float>& g,
                  tpt::volume<3_D, float> v)
 {
-    // ... do some Landweber iterations for simplicity
+    // ... do some Landweber iterations
+    auto s = world.rank();
+    auto p = world.active_processors();
 
     // prepare tasks
     auto [gathers, scatters, reduces, meta] =
@@ -132,26 +135,38 @@ void reconstruct(bulk::world& world,
     auto red_buf = bulk::coarray<float>(world, meta.reduction_size);
     auto proj_buf = bulk::coarray<float>(world, meta.projection_size);
 
+    auto ginfo = construct_geometry_info(g, p);
+
+    auto nu = 1u;
+    auto nv = 1u;
+    auto nx = 1u;
+    auto ny = 1u;
+    auto nz = 1u;
+    auto np = (uint32_t)g.projection_count();
+
+    // make local volume geometry
+    auto parts = pleiades::partitioning_to_corners(root, tpt::grcb::corners(v));
+    auto [a, b] = tpt::grcb::min_max_cube(parts[s]);
+
+    // make ASTRA vol geom
+    auto vol_geom =
+    astra::CVolumeGeometry3D(nx, ny, nz, a[0], a[1], a[2], b[0], b[1], b[2]);
+
     // Allocate GPU memory
-    auto D_proj = astraCUDA3d::allocateGPUMemory(nu, g.get_projection_count(),
-                                                 nv, astraCUDA3d::INIT_ZERO);
+    auto D_proj = astraCUDA3d::allocateGPUMemory(nu, np, nv, astraCUDA3d::INIT_ZERO);
     auto D_iter = astraCUDA3d::allocateGPUMemory(nx, ny, nz, astraCUDA3d::INIT_ZERO);
     astraCUDA3d::SSubDimensions3D dims_vol{nx, ny, nz, nx, nx, ny, nz, 0, 0, 0};
-    astraCUDA3d::SSubDimensions3D dims_proj{nu, g.get_projection_count(),
-                                            nv, nu,
-                                            nu, g.get_projection_count(),
-                                            nv, 0,
-                                            0,  0};
+    astraCUDA3d::SSubDimensions3D dims_proj{nu, np, nv, nu, nu,
+                                            np, nv, 0,  0,  0};
 
-    astra::CProjectionGeometry3D* proj_geom =
-    get_astra_subgeometry(g, geometry_info, proc);
+    astra::CProjectionGeometry3D* proj_geom = get_astra_subgeometry(g, ginfo, s);
 
-    auto num_iters = 100u;
+    auto num_iters = 2u;
     for (auto iter = 0u; iter < num_iters; ++iter) {
 
         // ASTRA fp (D_iter -> D_proj)
-        astraCUDA3d::zeroGPUMemory(D_proj, nu, g.get_projection_count(), nv);
-        astraCUDA3d::FP(proj_geom, D_proj, vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
+        astraCUDA3d::zeroGPUMemory(D_proj, nu, np, nv);
+        astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
 
         // download from GPU
         astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
@@ -168,11 +183,13 @@ void reconstruct(bulk::world& world,
         // upload to GPU
         astraCUDA3d::copyToGPUMemory(proj_buf.begin(), D_proj, dims_proj);
         // ASTRA bp (D_proj -> add to D_iter)
-        astraCUDA3d::BP(proj_geom, D_proj, vol_geom, D_iter, 1);
+        // TODO check last argument
+        astraCUDA3d::BP(proj_geom, D_proj, &vol_geom, D_iter, 1, false);
     }
 
+    // TODO make buf
     // Store D_iter
-    astraCUDA3d::copyFromGPUMemory(buf, D_iter, dims_vol);
+    // astraCUDA3d::copyFromGPUMemory(buf, D_iter, dims_vol);
 
     astraCUDA3d::freeGPUMemory(D_proj);
     astraCUDA3d::freeGPUMemory(D_iter);

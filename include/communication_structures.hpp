@@ -68,11 +68,9 @@ tasks(bulk::world& world,
       const tpt::grcb::node<T>& root,
       tpt::grcb::cube<T> v)
 {
-
     // alias local rank and number of processors
     auto s = world.rank();
     auto p = world.active_processors();
-
 
     // Construct geometry_info.
     // Note that each processor is performing exactly the same set of
@@ -85,7 +83,6 @@ tasks(bulk::world& world,
         update_geometry_info_for_projection(g_info, proj_id, bboxes);
     }
     finalize_geometry_info(g_info);
-
 
     // The strategy is as follows.
     // 1. Assign the projections round robin, and treat them independently. For

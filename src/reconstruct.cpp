@@ -1,4 +1,4 @@
-#include <bulk/backends/thread/thread.hpp>
+#include <bulk/backends/mpi/mpi.hpp>
 #include <bulk/bulk.hpp>
 
 #include "fmt/format.h"
@@ -25,7 +25,7 @@ int main(int argc, char* argv[])
 
     CLI11_PARSE(app, argc, argv);
 
-    auto env = bulk::thread::environment();
+    auto env = bulk::mpi::environment();
 
     env.spawn(env.available_processors(), [&](auto& world) {
         // read problem
@@ -35,6 +35,7 @@ int main(int argc, char* argv[])
 
         // run reconstruction
         auto root = tpt::grcb::partition(v, g, std::log2(p), {});
+        // TODO: v should be local v?
         pleiades::reconstruct(world, *root, g, v);
     });
 
