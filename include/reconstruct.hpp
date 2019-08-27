@@ -126,7 +126,7 @@ void reconstruct(bulk::world& world,
     auto s = world.rank();
     auto p = world.active_processors();
 
-    astra::setOutputScreen(stderr, astra::LOG_DEBUG);
+    astra::CLogger::setOutputScreen(2, astra::LOG_DEBUG);
 
     world.log("Computing tasks");
 

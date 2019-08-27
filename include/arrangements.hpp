@@ -255,9 +255,8 @@ geometry_info construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisi
 
     for (auto s = 0u; s < g_info.offsets.size(); ++s) {
         for (auto i = 0u; i < g_info.offsets[s].size(); ++i) {
-            // TODO: this was only consider the columns of local_shape first which seemed wrong, ask WJP
-            g_info.offsets[s][i] = i * std::get<0>(g_info.local_shape[s]) *
-                                   std::get<1>(g_info.local_shape[s]);
+            // TODO: is this correct?
+            g_info.offsets[s][i] = i * std::get<1>(g_info.local_shape[s]);
         }
     }
 
