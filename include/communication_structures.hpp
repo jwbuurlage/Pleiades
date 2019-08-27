@@ -72,17 +72,12 @@ tasks(bulk::world& world,
     auto s = world.rank();
     auto p = world.active_processors();
 
+
+    world.log("(TASKS) Constructing geometry info");
     // Construct geometry_info.
     // Note that each processor is performing exactly the same set of
     // calculations here, so this could be distributed if desired.
-    auto g_info = construct_geometry_info(acquisition_geometry, p);
-    for (auto proj_id = 0; proj_id < acquisition_geometry.projection_count(); ++proj_id) {
-        auto pi = acquisition_geometry.get_projection(proj_id);
-        auto shadows = get_shadows_for_projection(pi, root, v);
-        auto bboxes = get_bboxes_for_projection(pi, shadows);
-        update_geometry_info_for_projection(g_info, proj_id, bboxes);
-    }
-    finalize_geometry_info(g_info);
+    auto g_info = construct_geometry_info(acquisition_geometry, p, v, root);
 
     // The strategy is as follows.
     // 1. Assign the projections round robin, and treat them independently. For
@@ -114,7 +109,7 @@ tasks(bulk::world& world,
     // the buffer size that we require for each processor
     auto B = std::vector<std::size_t>(p, 0);
 
-
+    world.log("(TASKS) Phase A: assign owners, and measure buffers");
     // PHASE A: 'Dry run': assign owners, and measure buffers
     // process projections in a round-robin fashion
     // Here, i is the local index, and proj_id is the global index
@@ -130,7 +125,7 @@ tasks(bulk::world& world,
         faces.push_back(compute_scanlines(pi, overlay));
 
         // make zero-initialized list of owners
-        owners.push_back(std::vector<int>(0, faces[i].size()));
+        owners.push_back(std::vector<int>(faces[i].size(), 0));
 
         // We need to:
         // - assign and cache the owner
@@ -151,6 +146,8 @@ tasks(bulk::world& world,
         }
     }
 
+    world.log("(TASKS) Phase A2");
+
     // now we have B[t], the local buffer offsets can be computed this is a full
     // p^2-relation, after this communication step we can compute partial sums.
     auto C = bulk::coarray<std::size_t>(world, p * p);
@@ -170,6 +167,7 @@ tasks(bulk::world& world,
         }
     }
 
+    world.log("(TASKS) Phase B: construct task info");
     // PHASE B: Construct task info
     // prepare gather_tasks for contributors, scatter_tasks for owner
     // GOAL:
@@ -234,6 +232,7 @@ tasks(bulk::world& world,
         }
     }
 
+    world.log("(TASKS) Phase C: distribute tasks");
     // PHASE C: Distribute all tasks
     auto sq = bulk::queue<int[], int, scanline[]>(world);
     auto gq = bulk::queue<int, std::pair<std::size_t, scanline>[]>(world);

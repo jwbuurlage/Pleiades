@@ -1,5 +1,7 @@
 #include <bulk/bulk.hpp>
 
+#include "tpt/math/stringify.hpp"
+
 #include "communication_structures.hpp"
 
 #include <astra/ConeVecProjectionGeometry3D.h>
@@ -123,9 +125,13 @@ void reconstruct(bulk::world& world,
     auto s = world.rank();
     auto p = world.active_processors();
 
+    world.log("Computing tasks");
+
     // prepare tasks
     auto [gathers, scatters, reduces, meta] =
     tasks(world, g, root, tpt::grcb::corners(v));
+
+    world.log("Tasks computed");
 
     // make projection and reduction buffers
     // what size?
@@ -135,19 +141,34 @@ void reconstruct(bulk::world& world,
     auto red_buf = bulk::coarray<float>(world, meta.reduction_size);
     auto proj_buf = bulk::coarray<float>(world, meta.projection_size);
 
-    auto ginfo = construct_geometry_info(g, p);
+    world.log("Construct geometry info");
+    auto g_info = construct_geometry_info(g, p, tpt::grcb::corners(v), root);
+    world.log("Geometry info constructed");
 
-    auto nu = 1u;
-    auto nv = 1u;
-    auto nx = 1u;
-    auto ny = 1u;
-    auto nz = 1u;
-    auto np = (uint32_t)g.projection_count();
-
+    // TODO construct these (local) values
     // make local volume geometry
     auto parts = pleiades::partitioning_to_corners(root, tpt::grcb::corners(v));
-    auto [a, b] = tpt::grcb::min_max_cube(parts[s]);
+    auto [a, b] = tpt::grcb::min_max_cube<float>(parts[s]);
+    auto sz = b - a;
+    world.log("a %s b %s sz %s size %s voxels %s",
+              tpt::math::to_string<3_D, float>(a).c_str(),
+              tpt::math::to_string<3_D, float>(b).c_str(),
+              tpt::math::to_string<3_D, float>(sz).c_str(),
+              tpt::math::to_string<3_D, float>(v.physical_lengths()).c_str(),
+              tpt::math::to_string<3_D, int>(v.voxels()).c_str());
 
+    auto nu = (uint32_t)std::get<0>(g_info.local_shape[s]);
+    auto nv = (uint32_t)std::get<1>(g_info.local_shape[s]);
+
+    auto nx = (uint32_t)(v.voxels()[0] * (sz[0] / v.physical_lengths()[0]) + 0.5f);
+    auto ny = (uint32_t)(v.voxels()[1] * (sz[1] / v.physical_lengths()[1]) + 0.5f);
+    auto nz = (uint32_t)(v.voxels()[2] * (sz[2] / v.physical_lengths()[2]) + 0.5f);
+
+    auto np = (uint32_t)g.projection_count();
+
+    world.log("Core stats [%d, %d, %d], {%d, %d, %d}", nx, ny, nz, nu, nv, np);
+
+    world.log("Making ASTRA objects");
     // make ASTRA vol geom
     auto vol_geom =
     astra::CVolumeGeometry3D(nx, ny, nz, a[0], a[1], a[2], b[0], b[1], b[2]);
@@ -155,35 +176,47 @@ void reconstruct(bulk::world& world,
     // Allocate GPU memory
     auto D_proj = astraCUDA3d::allocateGPUMemory(nu, np, nv, astraCUDA3d::INIT_ZERO);
     auto D_iter = astraCUDA3d::allocateGPUMemory(nx, ny, nz, astraCUDA3d::INIT_ZERO);
-    astraCUDA3d::SSubDimensions3D dims_vol{nx, ny, nz, nx, nx, ny, nz, 0, 0, 0};
+
+    // TODO use this to make buf and to copy from GPU memory
+    // astraCUDA3d::SSubDimensions3D dims_vol{nx, ny, nz, nx, nx, ny, nz, 0, 0, 0};
     astraCUDA3d::SSubDimensions3D dims_proj{nu, np, nv, nu, nu,
                                             np, nv, 0,  0,  0};
 
-    astra::CProjectionGeometry3D* proj_geom = get_astra_subgeometry(g, ginfo, s);
+    astra::CProjectionGeometry3D* proj_geom = get_astra_subgeometry(g, g_info, s);
 
+    world.log("Iterating");
     auto num_iters = 2u;
     for (auto iter = 0u; iter < num_iters; ++iter) {
+        world.log("Iteration %i", iter);
 
         // ASTRA fp (D_iter -> D_proj)
+        world.log("zero", iter);
         astraCUDA3d::zeroGPUMemory(D_proj, nu, np, nv);
+        world.log("fp", iter);
         astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
 
         // download from GPU
+        world.log("gpu -> cpu");
         astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
 
+        world.log("gather");
         gather(red_buf, gathers, proj_buf.begin());
 
         // perform reductions
+        world.log("reduce");
         reduce(red_buf, reduces, proj_buf.begin());
 
         // subtract from b
         // (can do inner products in data space now before scatter (for cgls))
+        world.log("scatter");
         scatter(proj_buf, scatters, proj_buf.begin());
 
         // upload to GPU
+        world.log("cpu -> gpu");
         astraCUDA3d::copyToGPUMemory(proj_buf.begin(), D_proj, dims_proj);
         // ASTRA bp (D_proj -> add to D_iter)
         // TODO check last argument
+        world.log("bp");
         astraCUDA3d::BP(proj_geom, D_proj, &vol_geom, D_iter, 1, false);
     }
 

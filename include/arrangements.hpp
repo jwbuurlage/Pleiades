@@ -168,55 +168,10 @@ void plot_arrangement(tpt::geometry::projection<3_D, T> pi, std::string name, ar
 }
 
 template <typename T>
-geometry_info
-construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisition_geometry, int proc_count)
-{
-    geometry_info g_info;
-
-    g_info.projection_count = acquisition_geometry.projection_count();
-
-    assert(g_info.projection_count > 0);
-
-    auto pi = acquisition_geometry.get_projection(0);
-    g_info.shape = { pi.detector_shape[0], pi.detector_shape[1] };
-
-    g_info.corner.resize(proc_count);
-    g_info.local_shape.resize(proc_count);
-    for (int s = 0; s < proc_count; ++s) {
-        g_info.corner[s].resize(g_info.projection_count);
-        g_info.offsets[s].resize(g_info.projection_count);
-    }
-
-    return g_info;
-}
-
-void update_geometry_info_for_projection(geometry_info& g_info, int i, const projection_bboxes& bboxes)
-{
-    for (auto s = 0u; s < bboxes.corner.size(); ++s) {
-        g_info.corner[s][i] = bboxes.corner[s];
-        g_info.local_shape[s].first =
-        std::max(g_info.local_shape[s].first, bboxes.shape[s].first);
-        g_info.local_shape[s].second =
-        std::max(g_info.local_shape[s].second, bboxes.shape[s].second);
-    }
-}
-
-void finalize_geometry_info(geometry_info& g_info)
-{
-    for (auto s = 0u; s < g_info.offsets.size(); ++s) {
-        for (auto i = 0u; i < g_info.offsets[s].size(); ++i) {
-            g_info.offsets[s][i] =
-            i * std::get<1>(g_info.local_shape[s]);
-        }
-    }
-}
-
-
-template <typename T>
 tpt::math::vec2<T>
 coord_to_index(tpt::math::vec2<T> c, tpt::math::vec2<int> shape, tpt::math::vec2<T> size)
 {
-    tpt::math::vec2<T> sh = { T(shape[0]), T(shape[1]) };
+    tpt::math::vec2<T> sh = {T(shape[0]), T(shape[1])};
     return ((c * 2.0f * sh) / size + sh) * 0.5f;
 }
 
@@ -262,6 +217,52 @@ get_bboxes_for_projection(tpt::geometry::projection<3_D, T> pi,
     return b;
 }
 
+template <typename T>
+geometry_info construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisition_geometry,
+                                      int proc_count,
+                                      tpt::grcb::cube<T> v,
+                                      const tpt::grcb::node<T>& root)
+{
+    geometry_info g_info;
+
+    g_info.projection_count = acquisition_geometry.projection_count();
+    assert(g_info.projection_count > 0);
+
+    auto pi = acquisition_geometry.get_projection(0);
+    g_info.shape = {pi.detector_shape[0], pi.detector_shape[1]};
+
+    g_info.corner = std::vector<std::vector<std::pair<int, int>>>(proc_count);
+    g_info.offsets = std::vector<std::vector<std::size_t>>(proc_count);
+    g_info.local_shape = std::vector<std::pair<int, int>>(proc_count);
+    for (int s = 0; s < proc_count; ++s) {
+        g_info.corner[s] = std::vector<std::pair<int, int>>(g_info.projection_count);
+        g_info.offsets[s] = std::vector<std::size_t>(g_info.projection_count);
+    }
+
+    for (auto proj_id = 0; proj_id < acquisition_geometry.projection_count(); ++proj_id) {
+        auto pi = acquisition_geometry.get_projection(proj_id);
+        auto shadows = get_shadows_for_projection(pi, root, v);
+        auto bboxes = get_bboxes_for_projection(pi, shadows);
+
+        for (auto s = 0u; s < bboxes.corner.size(); ++s) {
+            g_info.corner[s][proj_id] = bboxes.corner[s];
+            g_info.local_shape[s].first =
+            std::max(g_info.local_shape[s].first, bboxes.shape[s].first);
+            g_info.local_shape[s].second =
+            std::max(g_info.local_shape[s].second, bboxes.shape[s].second);
+        }
+    }
+
+    for (auto s = 0u; s < g_info.offsets.size(); ++s) {
+        for (auto i = 0u; i < g_info.offsets[s].size(); ++i) {
+            // TODO: this was only consider the columns of local_shape first which seemed wrong, ask WJP
+            g_info.offsets[s][i] = i * std::get<0>(g_info.local_shape[s]) *
+                                   std::get<1>(g_info.local_shape[s]);
+        }
+    }
+
+    return g_info;
+}
 
 template <typename T>
 std::vector<pleiades::face>
@@ -294,7 +295,7 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
     Kernel::FT eds_u(pi.detector_size[1]);
     Kernel::FT eds_v(pi.detector_size[0]);
 
-    std::cout << pi.detector_size[1] << "," << pi.detector_size[0] << std::endl;
+    // std::cout << pi.detector_size[1] << "," << pi.detector_size[0] << std::endl;
 
     std::vector<int> TEST;
     TEST.resize(pi.detector_shape[1] * pi.detector_shape[0]);
@@ -304,13 +305,13 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
         if (!fit->has_outer_ccb())
             continue;
 
-        std::cout << "Face: [";
-        auto sep = "";
-        for (auto t : fit->data()) {
-            std::cout << sep << t;
-            sep = ", ";
-        }
-        std::cout << "]\n";
+        // std::cout << "Face: [";
+        // auto sep = "";
+        // for (auto t : fit->data()) {
+        //    std::cout << sep << t;
+        //    sep = ", ";
+        //}
+        // std::cout << "]\n";
 
         // Assumption: faces have no holes.
         // This assumption can be dropped, but the algorithm below then also has
@@ -373,7 +374,7 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
             if (us.empty())
                 continue;
 
-            std::cout << "Scanline " << iv << " at " << v << ": ";
+            // std::cout << "Scanline " << iv << " at " << v << ": ";
 
             assert(us.size() % 2 == 0);
 
@@ -383,7 +384,7 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
                 Kernel::FT u1i = us[2 * i];
                 Kernel::FT u2i = us[2 * i + 1];
 
-                std::cout << u1i << "," << u2i << "; ";
+                // std::cout << u1i << "," << u2i << "; ";
 
                 if (u2i < 0 || u1i >= pi.detector_shape[1])
                     continue;
@@ -410,11 +411,11 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
                 for (int j = 0; j < count; ++j)
                     TEST[begin + j] += 1;
 
-                std::cout << u1r << "," << count << "; ";
+                // std::cout << u1r << "," << count << "; ";
 
                 result_f.scanlines.push_back({(std::size_t)begin, (std::size_t)count});
             }
-            std::cout << std::endl;
+            // std::cout << std::endl;
         }
     }
 
@@ -437,10 +438,11 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
             else if (state == 2) { // end of row
                 assert(t == 0);
             }
-            std::cout << t << " ";
+            // std::cout << t << " ";
         }
-        std::cout << std::endl;
+        // std::cout << std::endl;
     }
+
 
     return result;
 }
