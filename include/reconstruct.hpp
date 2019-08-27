@@ -8,6 +8,7 @@
 #include <astra/Globals.h>
 #include <astra/VolumeGeometry3D.h>
 #include <astra/cuda/3d/mem3d.h>
+#include <astra/Logging.h>
 
 namespace pleiades {
 
@@ -125,6 +126,8 @@ void reconstruct(bulk::world& world,
     auto s = world.rank();
     auto p = world.active_processors();
 
+    astra::setOutputScreen(stderr, astra::LOG_DEBUG);
+
     world.log("Computing tasks");
 
     // prepare tasks
@@ -175,7 +178,9 @@ void reconstruct(bulk::world& world,
 
     // Allocate GPU memory
     auto D_proj = astraCUDA3d::allocateGPUMemory(nu, np, nv, astraCUDA3d::INIT_ZERO);
+    assert(D_proj);
     auto D_iter = astraCUDA3d::allocateGPUMemory(nx, ny, nz, astraCUDA3d::INIT_ZERO);
+    assert(D_iter);
 
     // TODO use this to make buf and to copy from GPU memory
     // astraCUDA3d::SSubDimensions3D dims_vol{nx, ny, nz, nx, nx, ny, nz, 0, 0, 0};
