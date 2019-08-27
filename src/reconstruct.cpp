@@ -1,4 +1,4 @@
-#include <bulk/backends/mpi/mpi.hpp>
+#include <bulk/backends/thread/thread.hpp>
 #include <bulk/bulk.hpp>
 
 #include "fmt/format.h"
@@ -25,7 +25,7 @@ int main(int argc, char* argv[])
 
     CLI11_PARSE(app, argc, argv);
 
-    auto env = bulk::mpi::environment();
+    auto env = bulk::thread::environment();
 
     env.spawn(env.available_processors(), [&](auto& world) {
         // read problem
