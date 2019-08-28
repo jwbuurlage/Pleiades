@@ -52,11 +52,19 @@ std::string info(const astra::CVolumeGeometry3D& x)
 
 // TODO implement gather and scatter steps
 template <typename T>
-void gather(bulk::coarray<T>& red_buf, std::vector<gather_task> tasks, const T* proj_data)
+void gather(bulk::coarray<T>& red_buf,
+            std::vector<gather_task> tasks,
+            const T* proj_data,
+            std::size_t proj_data_size)
 {
     for (auto task : tasks) {
         for (auto [remote, line] : task.lines) {
             auto [begin, count] = line;
+            if (0 > begin || begin + count >= proj_data_size) {
+                std::cerr << "CRASH: " << begin << " " << begin + count << " "
+                          << proj_data_size << "\n";
+                assert(false);
+            }
             // TODO: is int large enough for these indices? const_cast?
             red_buf(task.owner)[{(int)remote, (int)(remote + count)}] = {
             const_cast<T*>(&proj_data[begin]), count};
@@ -89,8 +97,8 @@ void scatter(bulk::coarray<T>& proj_buf, std::vector<scatter_task> tasks, const 
                 const_cast<T*>(&proj_data[local]), count};
             }
         }
-        proj_buf.world().sync();
     }
+    proj_buf.world().sync();
 }
 
 astra::SConeProjection get_astra_vectors(const tpt::geometry::base<3_D, float>& g, int index)
@@ -180,6 +188,9 @@ void reconstruct(bulk::world& world,
     auto [gathers, scatters, reduces, meta] =
     tasks(world, g, root, tpt::grcb::corners(v));
 
+    world.log("#gathers: %d, #scatters: %d, #reduces: %d", gathers.size(),
+              scatters.size(), reduces.size());
+
     world.log("Tasks computed");
 
     // make projection and reduction buffers
@@ -188,6 +199,9 @@ void reconstruct(bulk::world& world,
     // (we probably need geometry_info for generating geometries.)
 
     auto red_buf = bulk::coarray<float>(world, meta.reduction_size);
+
+    // proj_buf has indices:
+    // v (row), theta, u (col)
     auto proj_buf = bulk::coarray<float>(world, meta.projection_size);
 
     world.log("Construct geometry info");
@@ -284,10 +298,30 @@ void reconstruct(bulk::world& world,
 
     // forward project and create 'b',
     // TODO use something other than D_proj
-    assert(astraCUDA3d::copyToGPUMemory(buf.data(), D_iter, dims_vol));
-    assert(astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1.0f, astraCUDA3d::ker3d_default));
-    assert(astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj));
+    auto copy_result = astraCUDA3d::copyToGPUMemory(buf.data(), D_iter, dims_vol);
+    auto fp_result = astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1.0f,
+                                     astraCUDA3d::ker3d_default);
+    auto copy_back_result =
+    astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
+
+    if (!copy_result) {
+        world.log("Copy -> GPU error");
+    }
+    if (!fp_result) {
+        world.log("FP error");
+    }
+    if (!copy_back_result) {
+        world.log("Copy -> CPU error");
+    }
+
     // TODO also output dimensions (in filename?)
+    world.log("gather");
+    gather(red_buf, gathers, proj_buf.begin(), proj_buf.size());
+    world.log("reduce");
+    reduce(red_buf, reduces, proj_buf.begin());
+    world.log("scatter");
+    scatter(proj_buf, scatters, proj_buf.begin());
+    world.log("write sino");
     write_raw<float>(fmt::format("sino_{}_{}_{}_{}", nu, np, nv, s),
                      proj_buf.begin(), proj_buf.size());
 
@@ -307,17 +341,19 @@ void reconstruct(bulk::world& world,
         astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
 
         world.log("gather");
-        gather(red_buf, gathers, proj_buf.begin());
+        gather(red_buf, gathers, proj_buf.begin(), proj_buf.size());
 
         // perform reductions
         world.log("reduce");
         reduce(red_buf, reduces, proj_buf.begin());
 
-        // TODO subtract from b
 
         // (can do inner products in data space now before scatter (for cgls))?
         world.log("scatter");
         scatter(proj_buf, scatters, proj_buf.begin());
+
+        // TODO subtract from b
+        // EVERYONE HAS CORRECT FP VALUES FOR ALL VALUES IN PROJ_BUF
 
         // upload to GPU
         world.log("cpu -> gpu");

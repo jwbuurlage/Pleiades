@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <vector>
 
 namespace pleiades {
@@ -18,14 +19,16 @@ struct geometry_info {
     int projection_count;
 
     // the shape of the global projections
-    // row, column
+    // cols x rows
     std::pair<int, int> shape;
 
     // corner[t][i]: the upper left corner of projection i on processor t
-    // row, column
+    // col, row
     std::vector<std::vector<std::pair<int, int>>> corner;
 
     // local_shape[t]: the shape of the projections on processor t
+    // this is cols x rows
+    // detector shape in TPT is rows x cols
     std::vector<std::pair<int, int>> local_shape;
 
     // offsets[t][i]: the offset of the i-th projection in the projection buffer
@@ -38,15 +41,27 @@ struct geometry_info {
 std::size_t localize(geometry_info g, int t, int projection_index, std::size_t pixel)
 {
     // global pixel
-    auto i = pixel / std::get<0>(g.shape);
-    auto j = pixel % std::get<0>(g.shape);
+    // col, row
+    auto i = pixel % std::get<0>(g.shape);
+    auto j = pixel / std::get<0>(g.shape);
 
     // local pixel
+    // (a, b) = (col, row)
     auto a = i - std::get<0>(g.corner[t][projection_index]);
     auto b = j - std::get<1>(g.corner[t][projection_index]);
 
+    assert(i >= (uint32_t)std::get<0>(g.corner[t][projection_index]));
+    assert(j >= (uint32_t)std::get<1>(g.corner[t][projection_index]));
+    assert(a < (uint32_t)std::get<0>(g.local_shape[t]));
+    if (b >= (uint32_t)std::get<1>(g.local_shape[t])) {
+        std::cerr << "ERROR: " << b << " "
+                  << (uint32_t)std::get<1>(g.local_shape[t]) << "\n";
+        assert(false);
+    }
+
     // local coordinate
-    return g.offsets[t][projection_index] + a * std::get<1>(g.local_shape[t]) * g.projection_count + b;
+    return g.offsets[t][projection_index] +
+           b * std::get<0>(g.local_shape[t]) * g.projection_count + a;
 }
 
 // scanline is a consecutive subarray from position `begin` up to `begin +

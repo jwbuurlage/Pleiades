@@ -229,7 +229,7 @@ geometry_info construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisi
     assert(g_info.projection_count > 0);
 
     auto pi = acquisition_geometry.get_projection(0);
-    g_info.shape = {pi.detector_shape[0], pi.detector_shape[1]};
+    g_info.shape = {pi.detector_shape[1], pi.detector_shape[0]};
 
     g_info.corner = std::vector<std::vector<std::pair<int, int>>>(proc_count);
     g_info.offsets = std::vector<std::vector<std::size_t>>(proc_count);
@@ -255,8 +255,7 @@ geometry_info construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisi
 
     for (auto s = 0u; s < g_info.offsets.size(); ++s) {
         for (auto i = 0u; i < g_info.offsets[s].size(); ++i) {
-            // TODO: is this correct?
-            g_info.offsets[s][i] = i * std::get<1>(g_info.local_shape[s]);
+            g_info.offsets[s][i] = i * std::get<0>(g_info.local_shape[s]);
         }
     }
 
@@ -291,8 +290,8 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
 
     std::vector<face> result;
 
-    Kernel::FT eds_u(pi.detector_size[1]);
-    Kernel::FT eds_v(pi.detector_size[0]);
+    Kernel::FT eds_u(pi.detector_size[0]);
+    Kernel::FT eds_v(pi.detector_size[1]);
 
     // std::cout << pi.detector_size[1] << "," << pi.detector_size[0] << std::endl;
 
@@ -322,9 +321,9 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
 
         result_f.contributors = fit->data();
 
-        for (int iv = 0; iv < pi.detector_shape[0]; ++iv) {
+        for (int iv = 0; iv < pi.detector_shape[1]; ++iv) {
             Kernel::FT v =
-            -eds_v / 2 + eds_v * (Kernel::FT(2 * iv + 1) / (2 * pi.detector_shape[0]));
+            -eds_v / 2 + eds_v * (Kernel::FT(2 * iv + 1) / (2 * pi.detector_shape[1]));
 
             Point2 a(v, -eds_u);
             Point2 b(v, eds_u);
@@ -385,13 +384,13 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
 
                 // std::cout << u1i << "," << u2i << "; ";
 
-                if (u2i < 0 || u1i >= pi.detector_shape[1])
+                if (u2i < 0 || u1i >= pi.detector_shape[0])
                     continue;
 
                 if (u1i < 0)
                     u1i = 0;
-                if (u2i >= pi.detector_shape[1])
-                    u2i = pi.detector_shape[1];
+                if (u2i >= pi.detector_shape[0])
+                    u2i = pi.detector_shape[0];
 
                 // convert_to<int> rounds towards zero
                 int u1r = u1i.exact().convert_to<int>();
@@ -400,15 +399,15 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
                 if (u1r == u2r)
                     continue;
 
-                assert(u1r >= 0 && u1r <= pi.detector_shape[1] - 1);
-                assert(u2r >= 1 && u2r <= pi.detector_shape[1]);
+                assert(u1r >= 0 && u1r <= pi.detector_shape[0] - 1);
+                assert(u2r >= 1 && u2r <= pi.detector_shape[0]);
                 assert(u2r > u1r);
 
-                int begin = iv * pi.detector_shape[1] + u1r;
+                int begin = iv * pi.detector_shape[0] + u1r;
                 int count = u2r - u1r;
 
-                for (int j = 0; j < count; ++j)
-                    TEST[begin + j] += 1;
+                //                for (int j = 0; j < count; ++j)
+                //                    TEST[begin + j] += 1;
 
                 // std::cout << u1r << "," << count << "; ";
 
@@ -420,27 +419,27 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
 
     // Output number of scanlines that overlap each pixel, and do a quick
     // H-convexity check
-    for (int y = 0; y < pi.detector_shape[0]; ++y) {
-        int state = 0;
-        for (int x = 0; x < pi.detector_shape[1]; ++x) {
-            int t = TEST[y * pi.detector_shape[1] + x];
-            if (state == 0) { // start of row
-                assert(t == 0 || t == 1);
-                if (t == 1)
-                    state = 1;
-            }
-            else if (state == 1) { // middle of row
-                assert(t == 0 || t == 1);
-                if (t == 0)
-                    state = 2;
-            }
-            else if (state == 2) { // end of row
-                assert(t == 0);
-            }
-            // std::cout << t << " ";
-        }
-        // std::cout << std::endl;
-    }
+    //for (int y = 0; y < pi.detector_shape[0]; ++y) {
+    //    int state = 0;
+    //    for (int x = 0; x < pi.detector_shape[1]; ++x) {
+    //        int t = TEST[y * pi.detector_shape[1] + x];
+    //        if (state == 0) { // start of row
+    //            assert(t == 0 || t == 1);
+    //            if (t == 1)
+    //                state = 1;
+    //        }
+    //        else if (state == 1) { // middle of row
+    //            assert(t == 0 || t == 1);
+    //            if (t == 0)
+    //                state = 2;
+    //        }
+    //        else if (state == 2) { // end of row
+    //            assert(t == 0);
+    //        }
+    //        // std::cout << t << " ";
+    //    }
+    //    // std::cout << std::endl;
+    //}
 
 
     return result;

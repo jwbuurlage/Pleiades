@@ -212,8 +212,8 @@ tasks(bulk::world& world,
             // lines are to be filled
             auto gathers = std::vector<gather_info>(face.contributors.size(), {t, {}});
             for (auto [begin, count] : face.scanlines) {
-                rs.push_back({{D[t], count, face.contributors.size(),
-                              localize(g_info, t, proj_id, begin)}});
+                rs[t].push_back({D[t], count, face.contributors.size(),
+                                 localize(g_info, t, proj_id, begin)});
                 for (auto i = 0u; i < face.contributors.size(); ++i) {
                     auto u = face.contributors[i];
                     gathers[i].lines.push_back(
