@@ -285,7 +285,7 @@ tasks(bulk::world& world,
     auto local_reduces = std::vector<reduction_task>(rq.size());
     std::copy(rq.begin(), rq.end(), local_reduces.begin());
 
-    return {local_gathers, local_scatters, local_reduces, {(std::size_t)proj_buf_size, red_buf_size}};
+    return {local_gathers, local_scatters, local_reduces, {red_buf_size, (std::size_t)proj_buf_size}};
 }
 
 } // namespace pleiades

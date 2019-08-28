@@ -229,7 +229,7 @@ geometry_info construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisi
     assert(g_info.projection_count > 0);
 
     auto pi = acquisition_geometry.get_projection(0);
-    g_info.shape = {pi.detector_shape[1], pi.detector_shape[0]};
+    g_info.shape = {pi.detector_shape[0], pi.detector_shape[1]};
 
     g_info.corner = std::vector<std::vector<std::pair<int, int>>>(proc_count);
     g_info.offsets = std::vector<std::vector<std::size_t>>(proc_count);
@@ -310,6 +310,10 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
         //    sep = ", ";
         //}
         // std::cout << "]\n";
+#if 0
+        if (fit->data().size() <= 1)
+        continue;
+#endif
 
         // Assumption: faces have no holes.
         // This assumption can be dropped, but the algorithm below then also has
@@ -325,8 +329,8 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
             Kernel::FT v =
             -eds_v / 2 + eds_v * (Kernel::FT(2 * iv + 1) / (2 * pi.detector_shape[1]));
 
-            Point2 a(v, -eds_u);
-            Point2 b(v, eds_u);
+            Point2 a(-eds_u, v);
+            Point2 b(eds_u, v);
             Line2 line(a, b);
 
             std::vector<Kernel::FT> us;
@@ -347,13 +351,13 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
                     // the line, and an endpoint of an edge is hit only if it is
                     // the endpoint with the highest v coordinate.
                     if (const Point2* pp = boost::get<Point2>(&*result)) {
-                        Kernel::FT u = pp->y();
+                        Kernel::FT u = pp->x();
                         Kernel::FT ui = (u + eds_u / 2) / eds_u * pi.detector_shape[1];
                         if (*pp == edge->source()->point() ||
                             *pp == edge->target()->point()) {
-                            Kernel::FT v1 = edge->source()->point().x();
-                            Kernel::FT v2 = edge->target()->point().x();
-                            Kernel::FT vp = pp->x();
+                            Kernel::FT v1 = edge->source()->point().y();
+                            Kernel::FT v2 = edge->target()->point().y();
+                            Kernel::FT vp = pp->y();
                             assert(v1 != v2);
                             if (vp == CGAL::max(v1, v2))
                                 us.push_back(ui);
