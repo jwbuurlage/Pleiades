@@ -14,6 +14,42 @@
 
 namespace pleiades {
 
+std::string info(const astra::CConeVecProjectionGeometry3D& x)
+{
+    auto ss = std::stringstream("");
+
+    auto vectors = x.getProjectionVectors();
+
+    ss << "DetectorRowCount: " << x.getDetectorRowCount() << ", ";
+    ss << "DetectorColCount: " << x.getDetectorColCount() << ", ";
+    ss << "ProjectionCount: " << x.getProjectionCount() << ", ";
+    ss << "Vectors: [\n[" << vectors[0].fSrcX << ", " << vectors[0].fSrcY
+       << ", " << vectors[0].fSrcZ << "\n"
+       << vectors[0].fDetSX << ", " << vectors[0].fDetSY << ", "
+       << vectors[0].fDetSZ << " ... "
+       << "\n"
+       << vectors[0].fDetUX << ", " << vectors[0].fDetUY << ", "
+       << vectors[0].fDetUZ << "\n"
+       << vectors[0].fDetVX << ", " << vectors[0].fDetVY << ", " << vectors[0].fDetVZ
+       << "], [" << vectors[1].fSrcX << ", " << vectors[1].fSrcY << "...]...]";
+
+    return ss.str();
+}
+
+std::string info(const astra::CVolumeGeometry3D& x)
+{
+    auto ss = std::stringstream("");
+
+    ss << "Min: [" << x.getWindowMinX() << ", " << x.getWindowMinY() << ", "
+       << x.getWindowMinZ() << "], ";
+    ss << "Max: [" << x.getWindowMaxX() << ", " << x.getWindowMaxY() << ", "
+       << x.getWindowMaxZ() << "], ";
+    ss << "Shape: [" << x.getGridRowCount() << ", " << x.getGridColCount()
+       << ", " << x.getGridSliceCount() << "]";
+
+    return ss.str();
+}
+
 // TODO implement gather and scatter steps
 template <typename T>
 void gather(bulk::coarray<T>& red_buf, std::vector<gather_task> tasks, const T* proj_data)
@@ -75,12 +111,12 @@ astra::SConeProjection get_astra_vectors(const tpt::geometry::base<3_D, float>& 
     vec.fDetSX = det[0];
     vec.fDetSY = det[1];
     vec.fDetSZ = det[2];
-    vec.fDetUX = delta[1][0];
-    vec.fDetUY = delta[1][1];
-    vec.fDetUZ = delta[1][2];
-    vec.fDetVX = delta[0][0];
-    vec.fDetVY = delta[0][1];
-    vec.fDetVZ = delta[0][2];
+    vec.fDetUX = delta[0][0];
+    vec.fDetUY = delta[0][1];
+    vec.fDetUZ = delta[0][2];
+    vec.fDetVX = delta[1][0];
+    vec.fDetVY = delta[1][1];
+    vec.fDetVZ = delta[1][2];
 
     return vec;
 }
@@ -94,13 +130,13 @@ astra::SConeProjection get_astra_subvectors(const tpt::geometry::base<3_D, float
 
     // translate detector to local corner
 
-    vec.fDetSX += std::get<0>(gi.corner[proc_id][index]) * vec.fDetVX;
-    vec.fDetSY += std::get<0>(gi.corner[proc_id][index]) * vec.fDetVY;
-    vec.fDetSZ += std::get<0>(gi.corner[proc_id][index]) * vec.fDetVZ;
+    vec.fDetSX += std::get<1>(gi.corner[proc_id][index]) * vec.fDetVX;
+    vec.fDetSY += std::get<1>(gi.corner[proc_id][index]) * vec.fDetVY;
+    vec.fDetSZ += std::get<1>(gi.corner[proc_id][index]) * vec.fDetVZ;
 
-    vec.fDetSX += std::get<1>(gi.corner[proc_id][index]) * vec.fDetUX;
-    vec.fDetSY += std::get<1>(gi.corner[proc_id][index]) * vec.fDetUY;
-    vec.fDetSZ += std::get<1>(gi.corner[proc_id][index]) * vec.fDetUZ;
+    vec.fDetSX += std::get<0>(gi.corner[proc_id][index]) * vec.fDetUX;
+    vec.fDetSY += std::get<0>(gi.corner[proc_id][index]) * vec.fDetUY;
+    vec.fDetSZ += std::get<0>(gi.corner[proc_id][index]) * vec.fDetUZ;
 
     return vec;
 }
@@ -112,8 +148,9 @@ get_astra_subgeometry(const tpt::geometry::base<3_D, float>& g, const geometry_i
     for (auto i = 0; i < gi.projection_count; ++i)
         vecs[i] = get_astra_subvectors(g, i, gi, proc);
     astra::CConeVecProjectionGeometry3D* geom =
-    new astra::CConeVecProjectionGeometry3D(gi.projection_count, std::get<0>(gi.shape),
-                                            std::get<1>(gi.shape), vecs);
+    new astra::CConeVecProjectionGeometry3D(gi.projection_count,
+                                            std::get<1>(gi.local_shape[proc]),
+                                            std::get<0>(gi.local_shape[proc]), vecs);
     delete[] vecs;
 
     return geom;
@@ -240,12 +277,18 @@ void reconstruct(bulk::world& world,
 
     astra::CProjectionGeometry3D* proj_geom = get_astra_subgeometry(g, g_info, s);
 
-    // forward project and create 'b'
-    astraCUDA3d::copyToGPUMemory(buf.data(), D_iter, dims_vol);
-    astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
-    astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
+    std::cout << info(vol_geom) << "\n";
+    // SHAME...! SHAME...! SHAME...!
+    std::cout
+    << info(*dynamic_cast<astra::CConeVecProjectionGeometry3D*>(proj_geom)) << "\n";
+
+    // forward project and create 'b',
+    // TODO use something other than D_proj
+    assert(astraCUDA3d::copyToGPUMemory(buf.data(), D_iter, dims_vol));
+    assert(astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1.0f, astraCUDA3d::ker3d_default));
+    assert(astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj));
     // TODO also output dimensions (in filename?)
-    write_raw<float>(std::string("sino_") + std::to_string(s),
+    write_raw<float>(fmt::format("sino_{}_{}_{}_{}", nu, np, nv, s),
                      proj_buf.begin(), proj_buf.size());
 
     world.log("Iterating");
@@ -258,7 +301,6 @@ void reconstruct(bulk::world& world,
         astraCUDA3d::zeroGPUMemory(D_proj, nu, np, nv);
         world.log("fp", iter);
         astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
-
 
         // download from GPU
         world.log("gpu -> cpu");

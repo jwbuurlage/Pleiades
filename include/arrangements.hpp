@@ -233,7 +233,7 @@ geometry_info construct_geometry_info(const tpt::geometry::base<3_D, T>& acquisi
 
     g_info.corner = std::vector<std::vector<std::pair<int, int>>>(proc_count);
     g_info.offsets = std::vector<std::vector<std::size_t>>(proc_count);
-    g_info.local_shape = std::vector<std::pair<int, int>>(proc_count);
+    g_info.local_shape = std::vector<std::pair<int, int>>(proc_count, {0, 0});
     for (int s = 0; s < proc_count; ++s) {
         g_info.corner[s] = std::vector<std::pair<int, int>>(g_info.projection_count);
         g_info.offsets[s] = std::vector<std::size_t>(g_info.projection_count);
