@@ -1,3 +1,5 @@
+#include <fstream>
+
 #include <bulk/bulk.hpp>
 
 #include "tpt/math/stringify.hpp"
@@ -6,9 +8,9 @@
 
 #include <astra/ConeVecProjectionGeometry3D.h>
 #include <astra/Globals.h>
+#include <astra/Logging.h>
 #include <astra/VolumeGeometry3D.h>
 #include <astra/cuda/3d/mem3d.h>
-#include <astra/Logging.h>
 
 namespace pleiades {
 
@@ -117,6 +119,13 @@ get_astra_subgeometry(const tpt::geometry::base<3_D, float>& g, const geometry_i
     return geom;
 }
 
+template <typename T>
+void write_raw(std::string basename, T* data, std::size_t count)
+{
+    std::ofstream ofile(basename + ".raw", std::ios::binary);
+    ofile.write((char*)data, count * sizeof(T));
+}
+
 void reconstruct(bulk::world& world,
                  const tpt::grcb::node<float>& root,
                  tpt::geometry::base<3_D, float>& g,
@@ -163,18 +172,61 @@ void reconstruct(bulk::world& world,
     auto nu = (uint32_t)std::get<0>(g_info.local_shape[s]);
     auto nv = (uint32_t)std::get<1>(g_info.local_shape[s]);
 
+    // TODO simplify using something like
+    // auto [nu, nv] = g_info.local_shape[s];
+    // auto Ns = tpt::math::vec3<float>(v.voxels()) * (sz / v.physical_lengths()) +
+    //  tpt::math::vec3<float>(0.5f);
+    // TODO ... and a series of rounding ops
+
+    // compute local number of voxels
     auto nx = (uint32_t)(v.voxels()[0] * (sz[0] / v.physical_lengths()[0]) + 0.5f);
     auto ny = (uint32_t)(v.voxels()[1] * (sz[1] / v.physical_lengths()[1]) + 0.5f);
     auto nz = (uint32_t)(v.voxels()[2] * (sz[2] / v.physical_lengths()[2]) + 0.5f);
 
+    // local voxel origin
+    auto nox =
+    (uint32_t)(v.voxels()[0] * ((a[0] - v.origin()[0]) / v.physical_lengths()[0]) + 0.5f);
+    auto noy =
+    (uint32_t)(v.voxels()[1] * ((a[1] - v.origin()[1]) / v.physical_lengths()[1]) + 0.5f);
+    auto noz =
+    (uint32_t)(v.voxels()[2] * ((a[2] - v.origin()[2]) / v.physical_lengths()[2]) + 0.5f);
     auto np = (uint32_t)g.projection_count();
 
-    world.log("Core stats [%d, %d, %d], {%d, %d, %d}", nx, ny, nz, nu, nv, np);
+    world.log("Core stats [%d, %d, %d]+[%d, %d, %d], {%d, %d, %d}", nox, noy,
+              noz, nx, ny, nz, nu, nv, np);
 
     world.log("Making ASTRA objects");
     // make ASTRA vol geom
     auto vol_geom =
     astra::CVolumeGeometry3D(nx, ny, nz, a[0], a[1], a[2], b[0], b[1], b[2]);
+
+    world.log("Constructing phantom");
+    // Allocate CPU image buffer
+    auto buf = std::vector<float>(nx * ny * nz, 0.0f);
+    auto cube =
+    std::vector<tpt::math::vec3<uint32_t>>{v.voxels() / 5, 4 * v.voxels() / 5};
+
+    world.log("Cube %s %s", tpt::math::to_string<3_D, int>(cube[0]).c_str(),
+              tpt::math::to_string<3_D, int>(cube[1]).c_str());
+
+    for (auto k = std::max(cube[0][2], noz); k < std::min(cube[1][2], noz + nz); ++k) {
+        for (auto j = std::max(cube[0][1], noy); j < std::min(cube[1][1], noy + ny); ++j) {
+            for (auto i = std::max(cube[0][0], nox);
+                 i < std::min(cube[1][0], nox + nx); ++i) {
+                auto idx = (k - noz) * nx * ny + (j - noy) * nx + (i - nox);
+                buf[idx] = 1.0f;
+            }
+        }
+    }
+    write_raw<float>(std::string("phantom_") + std::to_string(s), buf.data(),
+                     buf.size());
+
+    // TODO forward project and create 'b'
+
+    // collect on s = 0 and plot
+    // auto full_image = std::vector<float>(tpt::math::product<3_D, int>(v.voxels()));
+    // auto q = bulk::queue<tpt::math::vec3<uint32_t>, tpt::math::vec3<uint32_t>, T[]>(world);
+    // write_raw("phantom_gathered", full_image.data(), full_image.size());
 
     // Allocate GPU memory
     auto D_proj = astraCUDA3d::allocateGPUMemory(nu, np, nv, astraCUDA3d::INIT_ZERO);
@@ -182,12 +234,19 @@ void reconstruct(bulk::world& world,
     auto D_iter = astraCUDA3d::allocateGPUMemory(nx, ny, nz, astraCUDA3d::INIT_ZERO);
     assert(D_iter);
 
-    // TODO use this to make buf and to copy from GPU memory
-    // astraCUDA3d::SSubDimensions3D dims_vol{nx, ny, nz, nx, nx, ny, nz, 0, 0, 0};
+    astraCUDA3d::SSubDimensions3D dims_vol{nx, ny, nz, nx, nx, ny, nz, 0, 0, 0};
     astraCUDA3d::SSubDimensions3D dims_proj{nu, np, nv, nu, nu,
                                             np, nv, 0,  0,  0};
 
     astra::CProjectionGeometry3D* proj_geom = get_astra_subgeometry(g, g_info, s);
+
+    // forward project and create 'b'
+    astraCUDA3d::copyToGPUMemory(buf.data(), D_iter, dims_vol);
+    astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
+    astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
+    // TODO also output dimensions (in filename?)
+    write_raw<float>(std::string("sino_") + std::to_string(s),
+                     proj_buf.begin(), proj_buf.size());
 
     world.log("Iterating");
     auto num_iters = 2u;
@@ -200,6 +259,7 @@ void reconstruct(bulk::world& world,
         world.log("fp", iter);
         astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
 
+
         // download from GPU
         world.log("gpu -> cpu");
         astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
@@ -211,14 +271,16 @@ void reconstruct(bulk::world& world,
         world.log("reduce");
         reduce(red_buf, reduces, proj_buf.begin());
 
-        // subtract from b
-        // (can do inner products in data space now before scatter (for cgls))
+        // TODO subtract from b
+
+        // (can do inner products in data space now before scatter (for cgls))?
         world.log("scatter");
         scatter(proj_buf, scatters, proj_buf.begin());
 
         // upload to GPU
         world.log("cpu -> gpu");
         astraCUDA3d::copyToGPUMemory(proj_buf.begin(), D_proj, dims_proj);
+
         // ASTRA bp (D_proj -> add to D_iter)
         // TODO check last argument
         world.log("bp");
