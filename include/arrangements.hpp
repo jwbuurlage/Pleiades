@@ -300,8 +300,9 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
 
     for (auto fit = overlay.faces_begin(); fit != overlay.faces_end(); ++fit) {
         // skip "outer" face
-        if (!fit->has_outer_ccb())
+        if (!fit->has_outer_ccb()) {
             continue;
+        }
 
         // std::cout << "Face: [";
         // auto sep = "";
@@ -310,10 +311,10 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
         //    sep = ", ";
         //}
         // std::cout << "]\n";
-#if 0
-        if (fit->data().size() <= 1)
-        continue;
-#endif
+
+        if (fit->data().size() <= 1) {
+            continue;
+        }
 
         // Assumption: faces have no holes.
         // This assumption can be dropped, but the algorithm below then also has
@@ -326,8 +327,8 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
         result_f.contributors = fit->data();
 
         for (int iv = 0; iv < pi.detector_shape[1]; ++iv) {
-            Kernel::FT v =
-            -eds_v / 2 + eds_v * (Kernel::FT(2 * iv + 1) / (2 * pi.detector_shape[1]));
+            Kernel::FT v = -0.5f * eds_v + eds_v * (Kernel::FT(2 * iv + 1) /
+                                                    (2 * pi.detector_shape[1]));
 
             Point2 a(-eds_u, v);
             Point2 b(eds_u, v);
@@ -352,7 +353,7 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
                     // the endpoint with the highest v coordinate.
                     if (const Point2* pp = boost::get<Point2>(&*result)) {
                         Kernel::FT u = pp->x();
-                        Kernel::FT ui = (u + eds_u / 2) / eds_u * pi.detector_shape[1];
+                        Kernel::FT ui = ((u + eds_u / 2) / eds_u) * pi.detector_shape[1];
                         if (*pp == edge->source()->point() ||
                             *pp == edge->target()->point()) {
                             Kernel::FT v1 = edge->source()->point().y();
@@ -362,8 +363,9 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
                             if (vp == CGAL::max(v1, v2))
                                 us.push_back(ui);
                         }
-                        else
+                        else {
                             us.push_back(ui);
+                        }
                     }
                     else {
                         assert(boost::get<Seg2>(&*result));
@@ -423,7 +425,7 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
 
     // Output number of scanlines that overlap each pixel, and do a quick
     // H-convexity check
-    //for (int y = 0; y < pi.detector_shape[0]; ++y) {
+    // for (int y = 0; y < pi.detector_shape[0]; ++y) {
     //    int state = 0;
     //    for (int x = 0; x < pi.detector_shape[1]; ++x) {
     //        int t = TEST[y * pi.detector_shape[1] + x];

@@ -140,11 +140,17 @@ tasks(bulk::world& world,
             std::accumulate(face.scanlines.begin(), face.scanlines.end(), 0u,
                             [](auto total, auto l) { return total + l.count; });
 
-            B[owners[i][f]] += face.contributors.size() * pixels;
+            B[owners[i][f]] += (face.contributors.size() - 1) * pixels;
 
             f += 1;
         }
     }
+
+    // # Buffer overview:
+    // B_s[t]: reduction buffer size on t due to projs from s
+    // C_u[t * p + s]: reduction buffer size on t due to projs from s, used to
+    // reduce to D
+    // D_s[t]: offset to our part of the reduction buffer on t
 
     world.log("(TASKS) Phase A2");
 
@@ -200,33 +206,43 @@ tasks(bulk::world& world,
     auto rs = std::vector<std::vector<reduction_task>>(p);
 
     // juggle indices
-    for (auto i = 0, proj_id = s;
-         proj_id < acquisition_geometry.projection_count(); proj_id += p, i += 1) {
+    for (auto idx = 0, proj_id = s;
+         proj_id < acquisition_geometry.projection_count(); proj_id += p, idx += 1) {
 
         auto f = 0;
-        for (auto& face : faces[i]) {
-            auto t = owners[i][f];
+        for (auto& face : faces[idx]) {
+            auto t = owners[idx][f];
+
+            // remove owner from contributors
+            auto colabs = std::vector<int>();
+            for (auto x : face.contributors) {
+                if (x == t) {
+                    continue;
+                }
+                colabs.push_back(x);
+            }
 
             // now we construct the task info
             // first, for each contributor we construct the gather task. the
             // lines are to be filled
-            auto gathers = std::vector<gather_info>(face.contributors.size(), {t, {}});
+            auto gathers = std::vector<gather_info>(colabs.size(), {t, {}});
             for (auto [begin, count] : face.scanlines) {
-                rs[t].push_back({D[t], count, face.contributors.size(),
+                rs[t].push_back({D[t], count, colabs.size(),
                                  localize(g_info, t, proj_id, begin)});
-                for (auto i = 0u; i < face.contributors.size(); ++i) {
-                    auto u = face.contributors[i];
+                for (auto i = 0u; i < colabs.size(); ++i) {
+                    auto u = colabs[i];
                     gathers[i].lines.push_back(
                     {D[t], {localize(g_info, u, proj_id, begin), count}});
                     D[t] += count;
                 }
             }
 
-            for (auto i = 0u; i < face.contributors.size(); ++i) {
-                auto u = face.contributors[i];
+            for (auto i = 0u; i < colabs.size(); ++i) {
+                auto u = colabs[i];
                 gs[u].push_back(gathers[i]);
             }
-            ss[t].push_back({face.contributors, proj_id, face.scanlines});
+
+            ss[t].push_back({colabs, proj_id, face.scanlines});
 
             ++f;
         }
@@ -245,6 +261,7 @@ tasks(bulk::world& world,
         for (auto info : gs[t]) {
             gq(t).send(info.owner, info.lines);
         }
+        world.log("%i -- %d tasks --> %i", s, rs[t].size(), t);
         for (auto task : rs[t]) {
             rq(t).send(task);
         }
@@ -282,8 +299,10 @@ tasks(bulk::world& world,
                          std::get<1>(g_info.local_shape[s]) * g_info.projection_count;
 
 
-    auto local_reduces = std::vector<reduction_task>(rq.size());
-    std::copy(rq.begin(), rq.end(), local_reduces.begin());
+    auto local_reduces = std::vector<reduction_task>();
+    for (auto task : rq) {
+        local_reduces.push_back(task);
+    }
 
     return {local_gathers, local_scatters, local_reduces, {red_buf_size, (std::size_t)proj_buf_size}};
 }

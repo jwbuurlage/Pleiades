@@ -50,15 +50,6 @@ std::size_t localize(geometry_info g, int t, int projection_index, std::size_t p
     auto a = i - std::get<0>(g.corner[t][projection_index]);
     auto b = j - std::get<1>(g.corner[t][projection_index]);
 
-    assert(i >= (uint32_t)std::get<0>(g.corner[t][projection_index]));
-    assert(j >= (uint32_t)std::get<1>(g.corner[t][projection_index]));
-    assert(a < (uint32_t)std::get<0>(g.local_shape[t]));
-    if (b >= (uint32_t)std::get<1>(g.local_shape[t])) {
-        std::cerr << "ERROR: " << b << " "
-                  << (uint32_t)std::get<1>(g.local_shape[t]) << "\n";
-        assert(false);
-    }
-
     // local coordinate
     return g.offsets[t][projection_index] +
            b * std::get<0>(g.local_shape[t]) * g.projection_count + a;

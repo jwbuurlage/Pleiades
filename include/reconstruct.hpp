@@ -52,49 +52,48 @@ std::string info(const astra::CVolumeGeometry3D& x)
 
 // TODO implement gather and scatter steps
 template <typename T>
-void gather(bulk::coarray<T>& red_buf,
-            std::vector<gather_task> tasks,
-            const T* proj_data,
-            std::size_t proj_data_size)
+void gather(bulk::coarray<T>& red_buf, const std::vector<gather_task>& tasks, T* proj_data)
 {
     for (auto task : tasks) {
         for (auto [remote, line] : task.lines) {
             auto [begin, count] = line;
-            if (0 > begin || begin + count >= proj_data_size) {
-                std::cerr << "CRASH: " << begin << " " << begin + count << " "
-                          << proj_data_size << "\n";
-                assert(false);
-            }
-            // TODO: is int large enough for these indices? const_cast?
-            red_buf(task.owner)[{(int)remote, (int)(remote + count)}] = {
-            const_cast<T*>(&proj_data[begin]), count};
+            // TODO replace indices in bulk with std::size_t...
+            assert((remote + count) < ((1u << 31) - 1));
+
+            red_buf(task.owner)[{(int)remote, (int)(remote + count)}] = {&proj_data[begin], count};
         }
     }
     red_buf.world().sync();
 }
 
 template <typename T>
-void reduce(bulk::coarray<T>& red_buf, std::vector<reduction_task> tasks, T* proj_data)
+void reduce(bulk::coarray<T>& red_buf, const std::vector<reduction_task>& tasks, T* proj_data)
 {
+    auto flops = 0u;
     for (auto [in, count, blocks, out] : tasks) {
+        flops += count * blocks;
         for (auto i = 0u; i < count; ++i) {
             for (auto j = 0u; j < blocks; ++j) {
-                proj_data[out + i] += red_buf[in + j * count];
+                proj_data[out + i] += red_buf[in + i + j * count];
             }
         }
     }
+    red_buf.world().log("Performed %u flops in reduce in %u tasks", flops, tasks.size());
 }
 
 template <typename T>
-void scatter(bulk::coarray<T>& proj_buf, std::vector<scatter_task> tasks, const T* proj_data)
+void scatter(bulk::coarray<T>& proj_buf, const std::vector<scatter_task>& tasks, T* proj_data)
 {
     for (auto task : tasks) {
         for (auto [begins, line] : task.lines) {
             for (auto i = 0u; i < task.contributors.size(); ++i) {
                 auto remote = begins[i];
                 auto [local, count] = line;
+
+                assert((remote + count) < ((1u << 31) - 1));
+
                 proj_buf(task.contributors[i])[{(int)remote, (int)(remote + count)}] = {
-                const_cast<T*>(&proj_data[local]), count};
+                &proj_data[local], count};
             }
         }
     }
@@ -190,8 +189,12 @@ void reconstruct(bulk::world& world,
 
     world.log("#gathers: %d, #scatters: %d, #reduces: %d", gathers.size(),
               scatters.size(), reduces.size());
-
     world.log("Tasks computed");
+
+    for (auto i = 0u; i < 10; ++i) {
+        auto [in, count, contributors, out] = reduces[i];
+        world.log("[in %d, count %d, contributors %d, out %d]", in, count, contributors, out);
+    }
 
     // make projection and reduction buffers
     // what size?
@@ -314,13 +317,13 @@ void reconstruct(bulk::world& world,
         world.log("Copy -> CPU error");
     }
 
-    // TODO also output dimensions (in filename?)
     world.log("gather");
-    gather(red_buf, gathers, proj_buf.begin(), proj_buf.size());
+    gather(red_buf, gathers, proj_buf.begin());
     world.log("reduce");
     reduce(red_buf, reduces, proj_buf.begin());
     world.log("scatter");
     scatter(proj_buf, scatters, proj_buf.begin());
+
     world.log("write sino");
     write_raw<float>(fmt::format("sino_{}_{}_{}_{}", nu, np, nv, s),
                      proj_buf.begin(), proj_buf.size());
@@ -341,7 +344,7 @@ void reconstruct(bulk::world& world,
         astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
 
         world.log("gather");
-        gather(red_buf, gathers, proj_buf.begin(), proj_buf.size());
+        gather(red_buf, gathers, proj_buf.begin());
 
         // perform reductions
         world.log("reduce");
@@ -365,9 +368,13 @@ void reconstruct(bulk::world& world,
         astraCUDA3d::BP(proj_geom, D_proj, &vol_geom, D_iter, 1, false);
     }
 
-    // TODO make buf
     // Store D_iter
-    // astraCUDA3d::copyFromGPUMemory(buf, D_iter, dims_vol);
+    astraCUDA3d::copyFromGPUMemory(buf.data(), D_iter, dims_vol);
+
+
+    world.log("writing recon");
+    write_raw<float>(std::string("recon_") + std::to_string(s), buf.data(),
+                     buf.size());
 
     astraCUDA3d::freeGPUMemory(D_proj);
     astraCUDA3d::freeGPUMemory(D_iter);
