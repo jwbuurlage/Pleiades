@@ -306,6 +306,7 @@ void reconstruct(bulk::world& world,
                                      astraCUDA3d::ker3d_default);
     auto copy_back_result =
     astraCUDA3d::copyFromGPUMemory(proj_buf.begin(), D_proj, dims_proj);
+    astraCUDA3d::zeroGPUMemory(D_iter, nx, ny, nz);
 
     if (!copy_result) {
         world.log("Copy -> GPU error");
@@ -327,6 +328,10 @@ void reconstruct(bulk::world& world,
     world.log("write sino");
     write_raw<float>(fmt::format("sino_{}_{}_{}_{}", nu, np, nv, s),
                      proj_buf.begin(), proj_buf.size());
+
+    // store as b
+    auto rhs = std::vector<float>(proj_buf.size());
+    std::copy(proj_buf.begin(), proj_buf.end(), rhs.begin());
 
     world.log("Iterating");
     auto num_iters = 2u;
@@ -355,8 +360,11 @@ void reconstruct(bulk::world& world,
         world.log("scatter");
         scatter(proj_buf, scatters, proj_buf.begin());
 
-        // TODO subtract from b
-        // EVERYONE HAS CORRECT FP VALUES FOR ALL VALUES IN PROJ_BUF
+        world.log("subtract from b");
+        // subtract from b
+        for (auto i = 0u; i < rhs.size(); ++i) {
+            proj_buf[i] = rhs[i] - proj_buf[i];
+        }
 
         // upload to GPU
         world.log("cpu -> gpu");
@@ -371,10 +379,8 @@ void reconstruct(bulk::world& world,
     // Store D_iter
     astraCUDA3d::copyFromGPUMemory(buf.data(), D_iter, dims_vol);
 
-
     world.log("writing recon");
-    write_raw<float>(std::string("recon_") + std::to_string(s), buf.data(),
-                     buf.size());
+    write_raw<float>(std::string("recon_") + std::to_string(s), buf.data(), buf.size());
 
     astraCUDA3d::freeGPUMemory(D_proj);
     astraCUDA3d::freeGPUMemory(D_iter);
