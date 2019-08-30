@@ -331,6 +331,7 @@ void reconstruct(bulk::world& world,
     std::copy(proj_buf.begin(), proj_buf.end(), rhs.begin());
 
     world.log("Iterating");
+    auto iter_timer = bulk::util::timer();
     auto num_iters = 3u;
     for (auto iter = 0u; iter < num_iters; ++iter) {
         auto dt = bulk::util::timer();
@@ -383,16 +384,19 @@ void reconstruct(bulk::world& world,
 
         report.row(std::to_string(iter), t_fp, t_comm, t_bp, t_total);
     }
+    world.sync();
+    auto t_3iter = iter_timer.get<std::ratio<1>>();
 
     // Store D_iter
     astraCUDA3d::copyFromGPUMemory(buf.data(), D_iter, dims_vol);
 
     world.log("writing recon");
-    write_raw<float>(std::string("recon_") + std::to_string(s), buf.data(), buf.size());
-
+    write_raw<float>(fmt::format("recon_{}_{}_{}_{}", nx, ny, nz, s),
+                     buf.data(), buf.size());
 
     if (s == 0) {
         std::cout << report.print() << "\n";
+        std::cout << "total for 3 iters: " << t_3iter << " sec.\n";
     }
 
     astraCUDA3d::freeGPUMemory(D_proj);
