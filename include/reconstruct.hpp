@@ -57,10 +57,7 @@ void gather(bulk::coarray<T>& red_buf, const std::vector<gather_task>& tasks, T*
     for (auto task : tasks) {
         for (auto [remote, line] : task.lines) {
             auto [begin, count] = line;
-            // TODO replace indices in bulk with std::size_t...
-            assert((remote + count) < ((1u << 31) - 1));
-
-            red_buf(task.owner)[{(int)remote, (int)(remote + count)}] = {&proj_data[begin], count};
+            red_buf(task.owner)[{remote, remote + count}] = {&proj_data[begin], count};
         }
     }
     red_buf.world().sync();
@@ -89,10 +86,7 @@ void scatter(bulk::coarray<T>& proj_buf, const std::vector<scatter_task>& tasks,
             for (auto i = 0u; i < task.contributors.size(); ++i) {
                 auto remote = begins[i];
                 auto [local, count] = line;
-
-                assert((remote + count) < ((1u << 31) - 1));
-
-                proj_buf(task.contributors[i])[{(int)remote, (int)(remote + count)}] = {
+                proj_buf(task.contributors[i])[{remote, remote + count}] = {
                 &proj_data[local], count};
             }
         }
