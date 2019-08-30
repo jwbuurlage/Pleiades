@@ -177,6 +177,7 @@ void reconstruct(bulk::world& world,
     auto p = world.active_processors();
 
     astra::CLogger::setOutputScreen(2, astra::LOG_DEBUG);
+    astraCUDA3d::setGPUIndex(s % 4);
 
     world.log("Computing tasks");
 
