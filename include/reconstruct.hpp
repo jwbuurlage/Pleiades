@@ -86,8 +86,8 @@ void scatter(bulk::coarray<T>& proj_buf, const std::vector<scatter_task>& tasks,
             for (auto i = 0u; i < task.contributors.size(); ++i) {
                 auto remote = begins[i];
                 auto [local, count] = line;
-                proj_buf(task.contributors[i])[{remote, remote + count}] = {
-                &proj_data[local], count};
+                proj_buf(task.contributors[i])[{remote, remote + count}] = {&proj_data[local],
+                                                                            count};
             }
         }
     }
@@ -169,6 +169,9 @@ void reconstruct(bulk::world& world,
                  tpt::geometry::base<3_D, float>& g,
                  tpt::volume<3_D, float> v)
 {
+    auto report = bulk::util::table("Results", "iteration");
+    report.columns("FP", "comm", "BP", "total");
+
     // ... do some Landweber iterations
     auto s = world.rank();
     auto p = world.active_processors();
@@ -328,8 +331,10 @@ void reconstruct(bulk::world& world,
     std::copy(proj_buf.begin(), proj_buf.end(), rhs.begin());
 
     world.log("Iterating");
-    auto num_iters = 2u;
+    auto num_iters = 3u;
     for (auto iter = 0u; iter < num_iters; ++iter) {
+        auto dt = bulk::util::timer();
+
         world.log("Iteration %i", iter);
 
         // ASTRA fp (D_iter -> D_proj)
@@ -337,6 +342,8 @@ void reconstruct(bulk::world& world,
         astraCUDA3d::zeroGPUMemory(D_proj, nu, np, nv);
         world.log("fp", iter);
         astraCUDA3d::FP(proj_geom, D_proj, &vol_geom, D_iter, 1, astraCUDA3d::ker3d_default);
+
+        auto t_fp = dt.get<std::ratio<1>>();
 
         // download from GPU
         world.log("gpu -> cpu");
@@ -354,6 +361,8 @@ void reconstruct(bulk::world& world,
         world.log("scatter");
         scatter(proj_buf, scatters, proj_buf.begin());
 
+        auto t_comm = dt.get<std::ratio<1>>() - t_fp;
+
         world.log("subtract from b");
         // subtract from b
         for (auto i = 0u; i < rhs.size(); ++i) {
@@ -368,6 +377,11 @@ void reconstruct(bulk::world& world,
         // TODO check last argument
         world.log("bp");
         astraCUDA3d::BP(proj_geom, D_proj, &vol_geom, D_iter, 1, false);
+
+        auto t_bp = dt.get<std::ratio<1>>() - t_comm;
+        auto t_total = dt.get<std::ratio<1>>();
+
+        report.row(std::to_string(iter), t_fp, t_comm, t_bp, t_total);
     }
 
     // Store D_iter
@@ -375,6 +389,11 @@ void reconstruct(bulk::world& world,
 
     world.log("writing recon");
     write_raw<float>(std::string("recon_") + std::to_string(s), buf.data(), buf.size());
+
+
+    if (s == 0) {
+        std::cout << report.print() << "\n";
+    }
 
     astraCUDA3d::freeGPUMemory(D_proj);
     astraCUDA3d::freeGPUMemory(D_iter);
