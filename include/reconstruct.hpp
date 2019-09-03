@@ -380,7 +380,7 @@ void reconstruct(bulk::world& world,
         world.log("bp");
         astraCUDA3d::BP(proj_geom, D_proj, &vol_geom, D_iter, 1, false);
 
-        auto t_bp = dt.get<std::ratio<1>>() - t_comm;
+        auto t_bp = dt.get<std::ratio<1>>() - t_comm - t_fp;
         auto t_total = dt.get<std::ratio<1>>();
 
         report.row(std::to_string(iter), t_fp, t_comm, t_bp, t_total);
