@@ -27,21 +27,21 @@ namespace pleiades {
 // E. Buffer (1)  ---  UPLOAD  --> GPU
 
 // TASKS:
-// There is one gather tasks for each contributor of a face
-// There is one scatter tasks for the owner of a face
+// - There is one gather tasks for each contributor of a face
+// - There is one scatter tasks for the owner of a face
 
-// for the gather step, one of the contributors of a face is considered its
-// owner. the scanlines in `lines` are to be communicated to the owner's
+// For the gather step, one of the contributors of a face is considered its
+// owner. The scanlines in `lines` are to be communicated to the owner's
 // 'reduction buffer' at the index indicated by the first component of the pair
 struct gather_task {
     int owner;
     std::vector<std::pair<std::size_t, scanline>> lines;
 };
 
-// for the scatter step, the owner communicates the reduction result back to the
-// contributors. Each line has an associated tag, which is a list of remote
-// indices of the contributors in their main data buffer
-// TODO here the scanline indices are in the gather result buffer
+// - For the scatter step, the owner communicates the reduction result back to the
+//   contributors. Each line has an associated tag, which is a list of remote
+//   indices of the contributors in their main data buffer
+// - The scanline indices are in the gather result buffer
 struct scatter_task {
     std::vector<int> contributors;
     std::vector<std::pair<std::vector<std::size_t>, scanline>> lines;
@@ -72,8 +72,6 @@ tasks(bulk::world& world,
     auto s = world.rank();
     auto p = world.active_processors();
 
-
-    world.log("(TASKS) Constructing geometry info");
     // Construct geometry_info.
     // Note that each processor is performing exactly the same set of
     // calculations here, so this could be distributed if desired.
@@ -109,7 +107,6 @@ tasks(bulk::world& world,
     // the buffer size that we require for each processor
     auto B = std::vector<std::size_t>(p, 0);
 
-    world.log("(TASKS) Phase A: assign owners, and measure buffers");
     // PHASE A: 'Dry run': assign owners, and measure buffers
     // process projections in a round-robin fashion
     // Here, i is the local index, and proj_id is the global index
@@ -152,8 +149,6 @@ tasks(bulk::world& world,
     // reduce to D
     // D_s[t]: offset to our part of the reduction buffer on t
 
-    world.log("(TASKS) Phase A2");
-
     // now we have B[t], the local buffer offsets can be computed this is a full
     // p^2-relation, after this communication step we can compute partial sums.
     auto C = bulk::coarray<std::size_t>(world, p * p);
@@ -173,7 +168,6 @@ tasks(bulk::world& world,
         }
     }
 
-    world.log("(TASKS) Phase B: construct task info");
     // PHASE B: Construct task info
     // prepare gather_tasks for contributors, scatter_tasks for owner
     // GOAL:
@@ -248,7 +242,6 @@ tasks(bulk::world& world,
         }
     }
 
-    world.log("(TASKS) Phase C: distribute tasks");
     // PHASE C: Distribute all tasks
     auto sq = bulk::queue<int[], int, scanline[]>(world);
     auto gq = bulk::queue<int, std::pair<std::size_t, scanline>[]>(world);
@@ -261,7 +254,6 @@ tasks(bulk::world& world,
         for (auto info : gs[t]) {
             gq(t).send(info.owner, info.lines);
         }
-        world.log("%i -- %d tasks --> %i", s, rs[t].size(), t);
         for (auto task : rs[t]) {
             rq(t).send(task);
         }

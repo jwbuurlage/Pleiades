@@ -53,7 +53,6 @@ partitioning_to_corners(const tpt::grcb::node<T>& partitioning, tpt::grcb::cube<
     return result;
 }
 
-// using Kernel = CGAL::Cartesian<double>;
 using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 using Traits_2 = CGAL::Arr_segment_traits_2<Kernel>;
 using Point_2 = Traits_2::Point_2;
@@ -122,9 +121,9 @@ get_overlay_for_projection(const std::vector<bg::model::polygon<tpt::math::vec2<
                            arrangements[0], pleiades::merge);
 }
 
-// plot the arrangements on a svg, darker colors for more contributors
-// convert face to boost geometry polygons
-// color number of contributors to the face
+// Plot the arrangements on a svg, darker colors for more contributors
+// - Converts face to boost geometry polygons
+// - Colors number of contributors to the face
 template <typename T>
 void plot_arrangement(tpt::geometry::projection<3_D, T> pi, std::string name, arrangement overlay)
 {
@@ -293,32 +292,19 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
     Kernel::FT eds_u(pi.detector_size[0]);
     Kernel::FT eds_v(pi.detector_size[1]);
 
-    // std::cout << pi.detector_size[1] << "," << pi.detector_size[0] << std::endl;
-
-    std::vector<int> TEST;
-    TEST.resize(pi.detector_shape[1] * pi.detector_shape[0]);
-
     for (auto fit = overlay.faces_begin(); fit != overlay.faces_end(); ++fit) {
         // skip "outer" face
         if (!fit->has_outer_ccb()) {
             continue;
         }
 
-        // std::cout << "Face: [";
-        // auto sep = "";
-        // for (auto t : fit->data()) {
-        //    std::cout << sep << t;
-        //    sep = ", ";
-        //}
-        // std::cout << "]\n";
-
         if (fit->data().size() <= 1) {
             continue;
         }
 
         // Assumption: faces have no holes.
-        // This assumption can be dropped, but the algorithm below then also has
-        // to iterate over the holes
+        //   - This assumption can be dropped, but the algorithm below then also has
+        //     to iterate over the holes
         assert(fit->holes_begin() == fit->holes_end());
 
         result.push_back(face());
@@ -378,8 +364,6 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
             if (us.empty())
                 continue;
 
-            // std::cout << "Scanline " << iv << " at " << v << ": ";
-
             assert(us.size() % 2 == 0);
 
             std::sort(us.begin(), us.end());
@@ -387,8 +371,6 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
             for (unsigned int i = 0; i < us.size() / 2; ++i) {
                 Kernel::FT u1i = us[2 * i];
                 Kernel::FT u2i = us[2 * i + 1];
-
-                // std::cout << u1i << "," << u2i << "; ";
 
                 if (u2i < 0 || u1i >= pi.detector_shape[0])
                     continue;
@@ -412,41 +394,14 @@ compute_scanlines(tpt::geometry::projection<3_D, T> pi, arrangement overlay)
                 int begin = iv * pi.detector_shape[0] + u1r;
                 int count = u2r - u1r;
 
-                //                for (int j = 0; j < count; ++j)
-                //                    TEST[begin + j] += 1;
-
-                // std::cout << u1r << "," << count << "; ";
-
                 result_f.scanlines.push_back({(std::size_t)begin, (std::size_t)count});
             }
-            // std::cout << std::endl;
         }
     }
 
-    // Output number of scanlines that overlap each pixel, and do a quick
-    // H-convexity check
-    // for (int y = 0; y < pi.detector_shape[0]; ++y) {
-    //    int state = 0;
-    //    for (int x = 0; x < pi.detector_shape[1]; ++x) {
-    //        int t = TEST[y * pi.detector_shape[1] + x];
-    //        if (state == 0) { // start of row
-    //            assert(t == 0 || t == 1);
-    //            if (t == 1)
-    //                state = 1;
-    //        }
-    //        else if (state == 1) { // middle of row
-    //            assert(t == 0 || t == 1);
-    //            if (t == 0)
-    //                state = 2;
-    //        }
-    //        else if (state == 2) { // end of row
-    //            assert(t == 0);
-    //        }
-    //        // std::cout << t << " ";
-    //    }
-    //    // std::cout << std::endl;
-    //}
-
+    // (... This file's original commit included a H-convexity check and some
+    // additional statistics. If this turns out to be necessary in the future it
+    // can be retrieved from there.)
 
     return result;
 }
